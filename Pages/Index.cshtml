@@ -53,7 +53,6 @@
                 <span>Noise threshold</span>
                 <div class="slider-head">
                     <strong data-noise-display>-30 dB</strong>
-                    <small>Lower values are less aggressive.</small>
                 </div>
                 <input asp-for="Input.NoiseThreshold" type="hidden" />
                 <input type="range" min="-60" max="0" step="1" value="-30" data-noise-slider />
@@ -61,65 +60,78 @@
                     <span>-60 dB</span>
                     <span>0 dB</span>
                 </div>
+                <small class="field-help">Sets how quiet audio must be before Strippr treats it as silence.</small>
             </label>
 
             <label class="field">
                 <span>Minimum silence</span>
                 <div class="slider-head">
                     <strong data-silence-display>0.5 s</strong>
-                    <small>Silence must last at least this long to be removed.</small>
                 </div>
                 <input asp-for="Input.MinimumSilenceSeconds" type="range" min="0.1" max="3" step="0.1" data-silence-slider />
                 <div class="slider-scale">
                     <span>0.1 s</span>
                     <span>3.0 s</span>
                 </div>
+                <small class="field-help">Silent audio must last at least this long before Strippr edits it.</small>
             </label>
 
             <label class="field">
-                <span>Keep pause</span>
+                <span>Min kept pause</span>
                 <div class="slider-head">
                     <strong data-retained-silence-display>0.00 s</strong>
-                    <small>Leave this much silence behind after each detected silent region.</small>
                 </div>
                 <input asp-for="Input.RetainedSilenceSeconds" type="range" min="0" max="1" step="0.05" data-retained-silence-slider />
                 <div class="slider-scale">
                     <span>0.00 s</span>
                     <span>1.00 s</span>
                 </div>
+                <small class="field-help">Leaves at least this much pause in the finished result after an automatic silence edit.</small>
+            </label>
+
+            <label class="field">
+                <span>Cut handles</span>
+                <div class="slider-head">
+                    <strong data-cut-handle-display>120 ms</strong>
+                </div>
+                <input asp-for="Input.CutHandleMilliseconds" type="range" min="0" max="500" step="10" data-cut-handle-slider />
+                <div class="slider-scale">
+                    <span>0 ms</span>
+                    <span>500 ms</span>
+                </div>
+                <small class="field-help">Keeps this much untouched silence on both sides of automatic silence edits to soften jumps.</small>
             </label>
 
             <label class="field">
                 <span>Crossfade</span>
                 <div class="slider-head">
                     <strong data-crossfade-display>80 ms</strong>
-                    <small>Crossfade audio between cuts to reduce clicks.</small>
                 </div>
                 <input asp-for="Input.CrossfadeMilliseconds" type="range" min="0" max="500" step="5" data-crossfade-slider />
                 <div class="slider-scale">
                     <span>0 ms</span>
                     <span>500 ms</span>
                 </div>
+                <small class="field-help">Crossfades audio at hard cut points to reduce clicks and abrupt joins.</small>
             </label>
 
             <label class="field">
                 <span>Video crossfade</span>
                 <div class="slider-head">
                     <strong data-video-crossfade-display>0 fr</strong>
-                    <small>Blend video cuts over a short frame window.</small>
                 </div>
                 <input asp-for="Input.VideoCrossfadeFrames" type="range" min="0" max="48" step="1" data-video-crossfade-slider />
                 <div class="slider-scale">
                     <span>0 fr</span>
                     <span>48 fr</span>
                 </div>
+                <small class="field-help">Blends adjacent video shots over a short frame range on hard cuts.</small>
             </label>
 
             <label class="field">
                 <span>Pause speed</span>
                 <div class="slider-head">
                     <strong data-pause-speed-display>1.0x</strong>
-                    <small><code>1.0x</code> uses the Keep pause value. Above that, pauses are compressed even further.</small>
                 </div>
                 <input asp-for="Input.PauseSpeedMultiplier" type="range" min="1" max="10" step="0.1" data-pause-speed-slider />
                 <div class="slider-scale">
@@ -127,6 +139,7 @@
                     <span>Cut -> compress</span>
                     <span>10.0x</span>
                 </div>
+                <small class="field-help"><code>1.0x</code> uses the minimum kept pause. Higher values compress silence faster instead of fully removing it.</small>
             </label>
         </div>
 
@@ -164,7 +177,7 @@
                     <button class="timeline-button" type="button" data-add-marker="out">Add out (S)</button>
                 </div>
                 <p class="waveform-help">
-                    Click the waveform to place the playhead, then play audio, preview the result, or add In and Out markers. Drag markers to adjust them and remove any marker from the list below.
+                    Blue regions show automatic silence edits. Orange regions show manual cuts. Click the waveform to place the playhead, then play audio, preview the result, or add In and Out markers.
                 </p>
             </div>
             <div class="waveform-viewport" data-waveform-viewport>

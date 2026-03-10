@@ -319,11 +319,17 @@ a {
 }
 
 .dropzone-copy,
-.field small,
+.field-help,
 .empty-state,
 .note-card p,
 .result-summary span {
   color: var(--muted);
+}
+
+.field-help {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
 }
 
 .field-grid {
@@ -441,6 +447,7 @@ a {
   pointer-events: none;
 }
 
+.waveform-auto-region,
 .waveform-cut-region,
 .waveform-playhead,
 .waveform-marker-button {
@@ -449,14 +456,36 @@ a {
   bottom: 0;
 }
 
+.waveform-auto-region {
+  z-index: 1;
+  background: rgba(110, 206, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(125, 213, 255, 0.2);
+}
+
+.waveform-auto-region.is-hard-cut {
+  background: rgba(110, 206, 255, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(125, 213, 255, 0.28);
+}
+
+.waveform-auto-region.is-compressed {
+  background: rgba(110, 206, 255, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(125, 213, 255, 0.16);
+}
+
 .waveform-cut-region {
+  z-index: 2;
   background: rgba(246, 125, 61, 0.14);
   box-shadow: inset 0 0 0 1px rgba(246, 125, 61, 0.18);
 }
 
 .waveform-playhead {
+  z-index: 3;
   width: 0;
   border-left: 2px solid rgba(238, 243, 251, 0.72);
+}
+
+.waveform-marker-button {
+  z-index: 4;
 }
 
 .waveform-marker-button {
@@ -537,7 +566,7 @@ input[type="range"] {
 
 .slider-head {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 1rem;
   align-items: baseline;
 }

@@ -33,5 +33,7 @@ public sealed class StripprOptions
 
     public double DefaultRetainedSilenceSeconds { get; set; } = 0;
 
+    public double DefaultCutHandleMilliseconds { get; set; } = 120;
+
     public double MinimumKeepSegmentSeconds { get; set; } = 0.15;
 }

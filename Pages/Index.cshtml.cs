@@ -67,6 +67,7 @@ public sealed class IndexModel : PageModel
             Input.NoiseThreshold,
             Input.MinimumSilenceSeconds,
             Input.RetainedSilenceSeconds,
+            Input.CutHandleMilliseconds,
             Input.CrossfadeMilliseconds,
             Input.VideoCrossfadeFrames,
             Input.PauseSpeedMultiplier,
@@ -93,6 +94,7 @@ public sealed class IndexModel : PageModel
             NoiseThreshold = _options.DefaultNoiseThreshold,
             MinimumSilenceSeconds = _options.DefaultMinimumSilenceSeconds,
             RetainedSilenceSeconds = _options.DefaultRetainedSilenceSeconds,
+            CutHandleMilliseconds = _options.DefaultCutHandleMilliseconds,
             CrossfadeMilliseconds = _options.DefaultCrossfadeMilliseconds,
             VideoCrossfadeFrames = _options.DefaultVideoCrossfadeFrames,
             PauseSpeedMultiplier = _options.DefaultPauseSpeedMultiplier,
@@ -121,6 +123,9 @@ public sealed class IndexModel : PageModel
 
         [Range(0, 1)]
         public double RetainedSilenceSeconds { get; set; }
+
+        [Range(0, 500)]
+        public double CutHandleMilliseconds { get; set; }
 
         [Range(0, 500)]
         public double CrossfadeMilliseconds { get; set; }

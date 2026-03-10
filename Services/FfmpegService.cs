@@ -306,8 +306,10 @@ public sealed partial class FfmpegService
                 ? rawFrameRateElement.GetString()
                 : null;
 
-            var parsedFrameRate = ParseFrameRate(avgFrameRate) ?? ParseFrameRate(rawFrameRate);
-            return parsedFrameRate is > 0 ? parsedFrameRate.Value : 30;
+            var parsedFrameRate = ParseFrameRate(rawFrameRate) ?? ParseFrameRate(avgFrameRate);
+            return parsedFrameRate is > 0
+                ? NormalizeFrameRate(parsedFrameRate.Value)
+                : 30;
         }
         catch
         {
@@ -552,6 +554,37 @@ public sealed partial class FfmpegService
         }
 
         return numerator / denominator;
+    }
+
+    private static double NormalizeFrameRate(double value)
+    {
+        if (value <= 0)
+        {
+            return 30;
+        }
+
+        var commonFrameRates = new[]
+        {
+            15d,
+            23.976d,
+            24d,
+            25d,
+            29.97d,
+            30d,
+            50d,
+            59.94d,
+            60d
+        };
+
+        foreach (var candidate in commonFrameRates)
+        {
+            if (Math.Abs(value - candidate) <= 0.25d)
+            {
+                return candidate;
+            }
+        }
+
+        return Math.Round(value, 3);
     }
 
     private static double ParseDouble(string value)

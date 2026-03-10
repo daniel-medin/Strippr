@@ -31,6 +31,7 @@ public sealed class VideoProcessingService
         string noiseThreshold,
         double minimumSilenceSeconds,
         double retainedSilenceSeconds,
+        double cutHandleMilliseconds,
         double crossfadeMilliseconds,
         int videoCrossfadeFrames,
         double pauseSpeedMultiplier,
@@ -81,6 +82,8 @@ public sealed class VideoProcessingService
 
             var normalizedManualCutRanges = _cutPlanBuilder.Normalize(analysis.DurationSeconds, manualCutRanges);
             var normalizedSilenceRanges = _cutPlanBuilder.Normalize(analysis.DurationSeconds, analysis.SilenceIntervals);
+            var cutHandleSeconds = Math.Max(0, cutHandleMilliseconds) / 1000d;
+            var handledSilenceRanges = _cutPlanBuilder.ApplyCutHandles(normalizedSilenceRanges, cutHandleSeconds);
             var useSilenceProcessing = pauseSpeedMultiplier > 1 || retainedSilenceSeconds > 0;
             var cutPlan = useSilenceProcessing
                 ? _cutPlanBuilder.Build(
@@ -89,12 +92,12 @@ public sealed class VideoProcessingService
                     _options.MinimumKeepSegmentSeconds)
                 : _cutPlanBuilder.Build(
                     analysis.DurationSeconds,
-                    analysis.SilenceIntervals.Concat(normalizedManualCutRanges).ToList(),
+                    handledSilenceRanges.Concat(normalizedManualCutRanges).ToList(),
                     _options.MinimumKeepSegmentSeconds);
             var renderSegments = useSilenceProcessing
                 ? _cutPlanBuilder.BuildRenderSegments(
                     analysis.DurationSeconds,
-                    normalizedSilenceRanges,
+                    handledSilenceRanges,
                     normalizedManualCutRanges,
                     _options.MinimumKeepSegmentSeconds,
                     pauseSpeedMultiplier,

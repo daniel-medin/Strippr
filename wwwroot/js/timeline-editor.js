@@ -20,6 +20,8 @@
   const silenceDisplay = form.querySelector("[data-silence-display]");
   const retainedSilenceSlider = form.querySelector("[data-retained-silence-slider]");
   const retainedSilenceDisplay = form.querySelector("[data-retained-silence-display]");
+  const cutHandleSlider = form.querySelector("[data-cut-handle-slider]");
+  const cutHandleDisplay = form.querySelector("[data-cut-handle-display]");
   const crossfadeSlider = form.querySelector("[data-crossfade-slider]");
   const crossfadeDisplay = form.querySelector("[data-crossfade-display]");
   const videoCrossfadeSlider = form.querySelector("[data-video-crossfade-slider]");
@@ -73,6 +75,8 @@
   let resultPreviewEntries = [];
   let resultPreviewBaseTime = 0;
   let resultPlaybackFrameId = null;
+  let detectedSilenceCacheKey = "";
+  let detectedSilenceCache = [];
   let defaultState = null;
 
   const minimumKeepSegmentSeconds = 0.15;
@@ -174,6 +178,7 @@
     noiseSlider: noiseSlider ? noiseSlider.value : null,
     silenceSlider: silenceSlider ? silenceSlider.value : null,
     retainedSilenceSlider: retainedSilenceSlider ? retainedSilenceSlider.value : null,
+    cutHandleSlider: cutHandleSlider ? cutHandleSlider.value : null,
     crossfadeSlider: crossfadeSlider ? crossfadeSlider.value : null,
     videoCrossfadeSlider: videoCrossfadeSlider ? videoCrossfadeSlider.value : null,
     pauseSpeedSlider: pauseSpeedSlider ? pauseSpeedSlider.value : null,
@@ -268,6 +273,15 @@
 
     const sliderValue = Number.parseFloat(retainedSilenceSlider.value);
     retainedSilenceDisplay.textContent = `${sliderValue.toFixed(2)} s`;
+  };
+
+  const syncCutHandleControls = () => {
+    if (!cutHandleSlider || !cutHandleDisplay) {
+      return;
+    }
+
+    const sliderValue = Number.parseFloat(cutHandleSlider.value);
+    cutHandleDisplay.textContent = `${sliderValue.toFixed(0)} ms`;
   };
 
   const syncCrossfadeControls = () => {
@@ -491,6 +505,14 @@
     return Math.max(0, Number.parseFloat(retainedSilenceSlider.value) || 0);
   };
 
+  const getCutHandleSeconds = () => {
+    if (!cutHandleSlider) {
+      return 0;
+    }
+
+    return Math.max(0, Number.parseFloat(cutHandleSlider.value) || 0) / 1000;
+  };
+
   const getPauseSpeedMultiplier = () => {
     if (!pauseSpeedSlider) {
       return 1;
@@ -626,6 +648,13 @@
       return [];
     }
 
+    const thresholdDb = parseThresholdDb();
+    const minimumSilenceSeconds = getMinimumSilenceSeconds();
+    const cacheKey = `${waveformToken}|${thresholdDb ?? "invalid"}|${minimumSilenceSeconds.toFixed(3)}`;
+    if (detectedSilenceCacheKey === cacheKey) {
+      return detectedSilenceCache;
+    }
+
     const sampleRate = decodedAudioBuffer.sampleRate;
     const frameSize = Math.max(1, Math.floor(sampleRate * 0.01));
     const channelCount = decodedAudioBuffer.numberOfChannels;
@@ -634,9 +663,7 @@
       channels.push(decodedAudioBuffer.getChannelData(index));
     }
 
-    const thresholdDb = parseThresholdDb();
     const thresholdAmplitude = thresholdDb === null ? 0 : Math.max(0, Math.min(1, Math.pow(10, thresholdDb / 20)));
-    const minimumSilenceSeconds = getMinimumSilenceSeconds();
     const detectedRanges = [];
     let silenceStartSeconds = null;
 
@@ -678,6 +705,8 @@
       }
     }
 
+    detectedSilenceCacheKey = cacheKey;
+    detectedSilenceCache = detectedRanges;
     return detectedRanges;
   };
 
@@ -725,6 +754,19 @@
     return targetDurationSeconds <= 0 ? 1 : Math.max(1, durationSeconds / targetDurationSeconds);
   };
 
+  const applyCutHandles = (ranges, handleSeconds) => {
+    if (ranges.length === 0 || handleSeconds <= 0) {
+      return ranges.map((range) => ({ ...range }));
+    }
+
+    return ranges
+      .map((range) => ({
+        startSeconds: range.startSeconds + handleSeconds,
+        endSeconds: range.endSeconds - handleSeconds,
+      }))
+      .filter((range) => range.endSeconds > range.startSeconds);
+  };
+
   const buildResultPreviewSegments = () => {
     if (!decodedAudioBuffer) {
       return [];
@@ -733,8 +775,12 @@
     const durationSeconds = decodedAudioBuffer.duration;
     const pauseSpeedMultiplier = getPauseSpeedMultiplier();
     const retainedSilenceSeconds = getRetainedSilenceSeconds();
+    const cutHandleSeconds = getCutHandleSeconds();
     const manualRanges = normalizeRemovedRanges(durationSeconds, buildManualCutRanges().ranges);
-    const silenceRanges = normalizeRemovedRanges(durationSeconds, detectSilenceRanges());
+    const silenceRanges = normalizeRemovedRanges(
+      durationSeconds,
+      applyCutHandles(detectSilenceRanges(), cutHandleSeconds),
+    );
 
     if (pauseSpeedMultiplier <= 1 && retainedSilenceSeconds <= 0) {
       const removedRanges = normalizeRemovedRanges(durationSeconds, silenceRanges.concat(manualRanges));
@@ -823,6 +869,28 @@
     };
   };
 
+  const buildAutomaticEditRanges = (manualRanges) => {
+    if (!decodedAudioBuffer) {
+      return [];
+    }
+
+    const durationSeconds = decodedAudioBuffer.duration;
+    const pauseSpeedMultiplier = getPauseSpeedMultiplier();
+    const retainedSilenceSeconds = getRetainedSilenceSeconds();
+    const cutHandleSeconds = getCutHandleSeconds();
+    const silenceRanges = normalizeRemovedRanges(
+      durationSeconds,
+      applyCutHandles(detectSilenceRanges(), cutHandleSeconds),
+    );
+    const automaticRanges = subtractRanges(silenceRanges, manualRanges);
+    const isHardCut = pauseSpeedMultiplier <= 1 && retainedSilenceSeconds <= 0;
+
+    return automaticRanges.map((range) => ({
+      ...range,
+      isHardCut,
+    }));
+  };
+
   const renderMarkerList = (orderedMarkers) => {
     if (!markerList) {
       return;
@@ -878,6 +946,15 @@
 
     waveformOverlay.innerHTML = "";
     const { orderedMarkers, ranges } = buildManualCutRanges();
+    const automaticRanges = buildAutomaticEditRanges(ranges);
+
+    automaticRanges.forEach((range) => {
+      const region = document.createElement("div");
+      region.className = `waveform-auto-region ${range.isHardCut ? "is-hard-cut" : "is-compressed"}`;
+      region.style.left = `${secondsToX(range.startSeconds)}px`;
+      region.style.width = `${Math.max(2, secondsToX(range.endSeconds) - secondsToX(range.startSeconds))}px`;
+      waveformOverlay.appendChild(region);
+    });
 
     ranges.forEach((range) => {
       const region = document.createElement("div");
@@ -950,6 +1027,8 @@
 
   const resetEditor = () => {
     waveformToken += 1;
+    detectedSilenceCacheKey = "";
+    detectedSilenceCache = [];
     disposePreviewAudio();
     resetManualCuts();
     waveformDurationSeconds = 0;
@@ -977,6 +1056,10 @@
         retainedSilenceSlider.value = defaultState.retainedSilenceSlider;
       }
 
+      if (cutHandleSlider && defaultState.cutHandleSlider !== null) {
+        cutHandleSlider.value = defaultState.cutHandleSlider;
+      }
+
       if (crossfadeSlider && defaultState.crossfadeSlider !== null) {
         crossfadeSlider.value = defaultState.crossfadeSlider;
       }
@@ -1001,6 +1084,7 @@
     syncNoiseControls();
     syncSilenceControls();
     syncRetainedSilenceControls();
+    syncCutHandleControls();
     syncCrossfadeControls();
     syncVideoCrossfadeControls();
     syncPauseSpeedControls();
@@ -1216,6 +1300,8 @@
 
     const file = fileInput.files && fileInput.files[0];
     const token = ++waveformToken;
+    detectedSilenceCacheKey = "";
+    detectedSilenceCache = [];
     updateThresholdReadout();
     resetManualCuts();
     waveformDurationSeconds = 0;
@@ -1291,6 +1377,7 @@
     silenceSlider.addEventListener("input", () => {
       stopResultPreview();
       syncSilenceControls();
+      renderWaveformOverlay();
     });
   }
 
@@ -1299,6 +1386,16 @@
     retainedSilenceSlider.addEventListener("input", () => {
       stopResultPreview();
       syncRetainedSilenceControls();
+      renderWaveformOverlay();
+    });
+  }
+
+  if (cutHandleSlider) {
+    syncCutHandleControls();
+    cutHandleSlider.addEventListener("input", () => {
+      stopResultPreview();
+      syncCutHandleControls();
+      renderWaveformOverlay();
     });
   }
 
@@ -1322,6 +1419,7 @@
     pauseSpeedSlider.addEventListener("input", () => {
       stopResultPreview();
       syncPauseSpeedControls();
+      renderWaveformOverlay();
     });
   }
 

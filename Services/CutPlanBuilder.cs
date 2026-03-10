@@ -134,6 +134,23 @@ public sealed class CutPlanBuilder
         return merged;
     }
 
+    public IReadOnlyList<SilenceInterval> ApplyCutHandles(
+        IReadOnlyList<SilenceInterval> silenceIntervals,
+        double handleSeconds)
+    {
+        if (silenceIntervals.Count == 0 || handleSeconds <= 0)
+        {
+            return silenceIntervals.ToList();
+        }
+
+        return silenceIntervals
+            .Select(interval => new SilenceInterval(
+                interval.StartSeconds + handleSeconds,
+                interval.EndSeconds - handleSeconds))
+            .Where(interval => interval.EndSeconds > interval.StartSeconds)
+            .ToList();
+    }
+
     public IReadOnlyList<SilenceInterval> Subtract(
         IReadOnlyList<SilenceInterval> sourceIntervals,
         IReadOnlyList<SilenceInterval> excludedIntervals)
