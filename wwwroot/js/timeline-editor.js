@@ -11,6 +11,8 @@
   const processingPercent = form.querySelector("[data-processing-percent]");
   const processingBar = form.querySelector("[data-processing-bar]");
   const fileInput = form.querySelector("input[type='file']");
+  const pickFileButton = form.querySelector("[data-pick-file]");
+  const fileNameDisplay = form.querySelector("[data-file-name]");
   const noiseInput = form.querySelector("input[name='Input.NoiseThreshold']");
   const noiseSlider = form.querySelector("[data-noise-slider]");
   const noiseDisplay = form.querySelector("[data-noise-display]");
@@ -25,6 +27,7 @@
   const pauseSpeedSlider = form.querySelector("[data-pause-speed-slider]");
   const pauseSpeedDisplay = form.querySelector("[data-pause-speed-display]");
   const validationSummary = form.querySelector(".validation-summary");
+  let resultPanel = document.querySelector("[data-result-panel]");
   const submitButton = form.querySelector("button[type='submit']");
   const waveformPanel = form.querySelector("[data-waveform-panel]");
   const waveformViewport = form.querySelector("[data-waveform-viewport]");
@@ -43,6 +46,7 @@
   const markerSummary = form.querySelector("[data-marker-summary]");
   const markerList = form.querySelector("[data-marker-list]");
   const addMarkerButtons = Array.from(form.querySelectorAll("[data-add-marker]"));
+  const resetAllButton = form.querySelector("[data-reset-all]");
 
   if (!processingPanel || !processingFill || !processingLabel || !processingPercent || !processingBar || !fileInput || !submitButton) {
     return;
@@ -69,6 +73,7 @@
   let resultPreviewEntries = [];
   let resultPreviewBaseTime = 0;
   let resultPlaybackFrameId = null;
+  let defaultState = null;
 
   const minimumKeepSegmentSeconds = 0.15;
 
@@ -149,11 +154,77 @@
     clearProcessingTimer();
     submitButton.disabled = false;
     form.classList.remove("is-processing");
+    processingPanel.hidden = true;
     processingLabel.textContent = "Processing failed.";
     processingPercent.textContent = `${Math.round(progressValue)}%`;
 
     if (validationSummary) {
       validationSummary.textContent = message;
+    }
+  };
+
+  const finishProcessing = () => {
+    clearProcessingTimer();
+    submitButton.disabled = false;
+    form.classList.remove("is-processing");
+    processingPanel.hidden = true;
+  };
+
+  const captureDefaultState = () => ({
+    noiseSlider: noiseSlider ? noiseSlider.value : null,
+    silenceSlider: silenceSlider ? silenceSlider.value : null,
+    retainedSilenceSlider: retainedSilenceSlider ? retainedSilenceSlider.value : null,
+    crossfadeSlider: crossfadeSlider ? crossfadeSlider.value : null,
+    videoCrossfadeSlider: videoCrossfadeSlider ? videoCrossfadeSlider.value : null,
+    pauseSpeedSlider: pauseSpeedSlider ? pauseSpeedSlider.value : null,
+    waveformVerticalZoom: waveformVerticalZoom ? waveformVerticalZoom.value : "1",
+    waveformHorizontalZoom: waveformHorizontalZoom ? waveformHorizontalZoom.value : "1",
+  });
+
+  const clearWaveformCanvas = () => {
+    if (waveformCanvas) {
+      const context = waveformCanvas.getContext("2d");
+      if (context) {
+        context.clearRect(0, 0, waveformCanvas.width, waveformCanvas.height);
+      }
+
+      waveformCanvas.width = 0;
+      waveformCanvas.height = 0;
+      waveformCanvas.style.width = "";
+      waveformCanvas.style.height = "";
+    }
+
+    if (waveformStage) {
+      waveformStage.style.width = "";
+      waveformStage.style.height = "";
+    }
+
+    if (waveformOverlay) {
+      waveformOverlay.innerHTML = "";
+    }
+  };
+
+  const syncSelectedFileName = () => {
+    if (!fileNameDisplay) {
+      return;
+    }
+
+    const file = fileInput && fileInput.files && fileInput.files[0];
+    fileNameDisplay.textContent = file ? file.name : "No file selected";
+  };
+
+  const applyServerResponse = (responseText) => {
+    const parser = new DOMParser();
+    const responseDocument = parser.parseFromString(responseText, "text/html");
+    const nextResultPanel = responseDocument.querySelector("[data-result-panel]");
+    if (nextResultPanel && resultPanel) {
+      resultPanel.replaceWith(nextResultPanel);
+      resultPanel = nextResultPanel;
+    }
+
+    const nextValidationSummary = responseDocument.querySelector(".validation-summary");
+    if (validationSummary) {
+      validationSummary.innerHTML = nextValidationSummary ? nextValidationSummary.innerHTML : "";
     }
   };
 
@@ -259,12 +330,12 @@
   const syncPlaybackButtons = () => {
     if (playAudioButton) {
       playAudioButton.disabled = !previewAudio;
-      playAudioButton.textContent = previewAudio && !previewAudio.paused ? "Pause audio" : "Play audio";
+      playAudioButton.textContent = previewAudio && !previewAudio.paused ? "Pause audio (Space)" : "Play audio (Space)";
     }
 
     if (playResultButton) {
       playResultButton.disabled = !decodedAudioBuffer;
-      playResultButton.textContent = resultPreviewContext ? "Pause result" : "Play result";
+      playResultButton.textContent = resultPreviewContext ? "Pause result (R)" : "Play result (R)";
     }
   };
 
@@ -640,9 +711,14 @@
       return 1;
     }
 
-    let targetDurationSeconds = durationSeconds / Math.max(1, pauseSpeedMultiplier);
-    if (retainedSilenceSeconds > 0) {
-      targetDurationSeconds = Math.max(retainedSilenceSeconds, targetDurationSeconds);
+    let targetDurationSeconds;
+    if (retainedSilenceSeconds > 0 && pauseSpeedMultiplier <= 1) {
+      targetDurationSeconds = Math.min(durationSeconds, retainedSilenceSeconds);
+    } else {
+      targetDurationSeconds = durationSeconds / Math.max(1, pauseSpeedMultiplier);
+      if (retainedSilenceSeconds > 0) {
+        targetDurationSeconds = Math.max(retainedSilenceSeconds, targetDurationSeconds);
+      }
     }
 
     targetDurationSeconds = clamp(targetDurationSeconds, 0, durationSeconds);
@@ -870,6 +946,86 @@
     if (waveformOverlay) {
       waveformOverlay.innerHTML = "";
     }
+  };
+
+  const resetEditor = () => {
+    waveformToken += 1;
+    disposePreviewAudio();
+    resetManualCuts();
+    waveformDurationSeconds = 0;
+    waveformPeaks = null;
+    playheadSeconds = null;
+    selectedMarkerId = null;
+    dragMarkerId = null;
+
+    if (fileInput) {
+      fileInput.value = "";
+    }
+
+    syncSelectedFileName();
+
+    if (defaultState) {
+      if (noiseSlider && defaultState.noiseSlider !== null) {
+        noiseSlider.value = defaultState.noiseSlider;
+      }
+
+      if (silenceSlider && defaultState.silenceSlider !== null) {
+        silenceSlider.value = defaultState.silenceSlider;
+      }
+
+      if (retainedSilenceSlider && defaultState.retainedSilenceSlider !== null) {
+        retainedSilenceSlider.value = defaultState.retainedSilenceSlider;
+      }
+
+      if (crossfadeSlider && defaultState.crossfadeSlider !== null) {
+        crossfadeSlider.value = defaultState.crossfadeSlider;
+      }
+
+      if (videoCrossfadeSlider && defaultState.videoCrossfadeSlider !== null) {
+        videoCrossfadeSlider.value = defaultState.videoCrossfadeSlider;
+      }
+
+      if (pauseSpeedSlider && defaultState.pauseSpeedSlider !== null) {
+        pauseSpeedSlider.value = defaultState.pauseSpeedSlider;
+      }
+
+      if (waveformVerticalZoom) {
+        waveformVerticalZoom.value = defaultState.waveformVerticalZoom;
+      }
+
+      if (waveformHorizontalZoom) {
+        waveformHorizontalZoom.value = defaultState.waveformHorizontalZoom;
+      }
+    }
+
+    syncNoiseControls();
+    syncSilenceControls();
+    syncRetainedSilenceControls();
+    syncCrossfadeControls();
+    syncVideoCrossfadeControls();
+    syncPauseSpeedControls();
+    syncWaveformZoomControls();
+    updateThresholdReadout();
+    setMarkerButtonsEnabled(false);
+    clearWaveformCanvas();
+
+    if (waveformViewport) {
+      waveformViewport.scrollLeft = 0;
+    }
+
+    if (waveformPanel) {
+      waveformPanel.hidden = true;
+    }
+
+    if (waveformStatus) {
+      waveformStatus.textContent = "Choose a video file to analyze its audio.";
+    }
+
+    if (validationSummary) {
+      validationSummary.innerHTML = "";
+    }
+
+    syncPlaybackButtons();
   };
 
   const getInsertionSeconds = () => {
@@ -1442,6 +1598,14 @@
       return;
     }
 
+    if (event.key === "r" || event.key === "R") {
+      event.preventDefault();
+      if (playResultButton) {
+        playResultButton.click();
+      }
+      return;
+    }
+
     if (event.key === "a" || event.key === "A") {
       event.preventDefault();
       addMarker("in");
@@ -1501,8 +1665,21 @@
   }
 
   fileInput.addEventListener("change", () => {
+    syncSelectedFileName();
     analyzeSelectedFile();
   });
+
+  if (pickFileButton instanceof HTMLButtonElement) {
+    pickFileButton.addEventListener("click", () => {
+      fileInput.click();
+    });
+  }
+
+  if (resetAllButton instanceof HTMLButtonElement) {
+    resetAllButton.addEventListener("click", () => {
+      resetEditor();
+    });
+  }
 
   window.addEventListener("resize", () => {
     drawWaveform();
@@ -1510,7 +1687,9 @@
 
   updateThresholdReadout();
   resetManualCuts();
+  syncSelectedFileName();
   syncPlaybackButtons();
+  defaultState = captureDefaultState();
   window.addEventListener("beforeunload", () => {
     disposePreviewAudio();
   });
@@ -1558,10 +1737,9 @@
     request.addEventListener("load", () => {
       clearProcessingTimer();
       if (request.status >= 200 && request.status < 300 && typeof request.responseText === "string") {
-        setProgress(100, "Reloading result...");
-        document.open();
-        document.write(request.responseText);
-        document.close();
+        setProgress(100, "Export complete.");
+        applyServerResponse(request.responseText);
+        finishProcessing();
         return;
       }
 

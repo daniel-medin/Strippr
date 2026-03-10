@@ -1,3 +1,4 @@
+using System.Net.Mime;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.StaticFiles;
 using Strippr.Options;
@@ -52,7 +53,12 @@ app.UseRouting();
 app.UseAuthorization();
 
 app.MapStaticAssets();
-app.MapGet("/download/{fileName}", (string fileName, WorkspaceService workspaceService) =>
+app.MapGet("/download/{fileName}", async Task<IResult> (
+    string fileName,
+    HttpContext httpContext,
+    ILogger<Program> logger,
+    WorkspaceService workspaceService,
+    CancellationToken cancellationToken) =>
 {
     var outputPath = workspaceService.TryGetOutputPath(fileName);
     if (outputPath is null)
@@ -66,10 +72,36 @@ app.MapGet("/download/{fileName}", (string fileName, WorkspaceService workspaceS
         contentType = "application/octet-stream";
     }
 
-    return Results.File(
-        fileStream: File.OpenRead(outputPath),
-        contentType: contentType,
-        fileDownloadName: Path.GetFileName(outputPath));
+    var downloadName = Path.GetFileName(outputPath);
+
+    try
+    {
+        await using (var fileStream = File.OpenRead(outputPath))
+        {
+            httpContext.Response.ContentType = contentType;
+            httpContext.Response.ContentLength = fileStream.Length;
+            httpContext.Response.Headers.ContentDisposition = new ContentDisposition
+            {
+                FileName = downloadName,
+                Inline = false
+            }.ToString();
+
+            await fileStream.CopyToAsync(httpContext.Response.Body, cancellationToken);
+        }
+    }
+    finally
+    {
+        try
+        {
+            workspaceService.TryDeleteOutput(downloadName);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Failed to delete temporary output file {FileName}", downloadName);
+        }
+    }
+
+    return Results.Empty;
 });
 app.MapRazorPages()
    .WithStaticAssets();

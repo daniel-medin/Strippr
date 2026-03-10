@@ -65,6 +65,18 @@ public sealed class WorkspaceService
         return File.Exists(fullPath) ? fullPath : null;
     }
 
+    public bool TryDeleteOutput(string fileName)
+    {
+        var outputPath = TryGetOutputPath(fileName);
+        if (outputPath is null)
+        {
+            return false;
+        }
+
+        File.Delete(outputPath);
+        return true;
+    }
+
     private string ResolveOutputsPath()
     {
         if (Path.IsPathRooted(_options.OutputsFolder))
@@ -72,11 +84,7 @@ public sealed class WorkspaceService
             return _options.OutputsFolder;
         }
 
-        var downloadsRoot = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            "Downloads");
-
-        return Path.Combine(downloadsRoot, _options.OutputsFolder);
+        return Path.Combine(StorageRootPath, _options.OutputsFolder);
     }
 
     private string ResolvePath(string path)

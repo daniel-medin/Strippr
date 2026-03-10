@@ -39,6 +39,12 @@
         <label class="dropzone" asp-for="Input.Video">
             <span class="dropzone-label">Video file</span>
             <input asp-for="Input.Video" type="file" accept="video/*" />
+            <div class="dropzone-actions">
+                <button class="secondary-button dropzone-button" type="button" data-pick-file>
+                    Choose video...
+                </button>
+                <strong class="dropzone-file-name" data-file-name>No file selected</strong>
+            </div>
             <span class="dropzone-copy">Choose a local video file to process.</span>
         </label>
 
@@ -152,8 +158,8 @@
             </div>
             <div class="waveform-actions">
                 <div class="waveform-action-buttons">
-                    <button class="timeline-button" type="button" data-waveform-play disabled>Play audio</button>
-                    <button class="timeline-button" type="button" data-waveform-play-result disabled>Play result</button>
+                    <button class="timeline-button" type="button" data-waveform-play disabled>Play audio (Space)</button>
+                    <button class="timeline-button" type="button" data-waveform-play-result disabled>Play result (R)</button>
                     <button class="timeline-button" type="button" data-add-marker="in">Add in (A)</button>
                     <button class="timeline-button" type="button" data-add-marker="out">Add out (S)</button>
                 </div>
@@ -177,9 +183,14 @@
             <div class="marker-list" data-marker-list hidden></div>
         </section>
 
-        <button class="submit-button" type="submit" disabled="@(!Model.FfmpegAvailable)">
-            Process video
-        </button>
+        <div class="form-actions">
+            <button class="submit-button" type="submit" disabled="@(!Model.FfmpegAvailable)">
+                Process video
+            </button>
+            <button class="secondary-button" type="button" data-reset-all>
+                Reset all
+            </button>
+        </div>
 
         <div class="processing-panel" data-processing-panel hidden aria-live="polite">
             <div class="processing-head">
@@ -194,7 +205,7 @@
     </form>
 </section>
 
-<section class="panel-card result-card-full">
+<section class="panel-card result-card-full" data-result-panel>
     <div class="panel-head">
         <div>
             <p class="panel-kicker">Render output</p>
@@ -252,7 +263,7 @@
             <p class="save-status" data-save-status hidden></p>
 
             <p class="saved-path">
-                Saved to <code>@Model.Result.OutputPath</code>
+                Export complete. Use <strong>Save As...</strong> to choose where the finished file goes.
             </p>
         }
     }

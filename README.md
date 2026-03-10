@@ -15,7 +15,7 @@ If Strippr saves you time, consider supporting development.
 - Remove silent segments from audio and video together
 - Preview the audio waveform in the browser
 - Adjust silence threshold and minimum silence with sliders
-- Save processed output to `Downloads\Strippr`
+- Download processed output when and where you want
 
 ## Stack
 
@@ -86,13 +86,12 @@ Important GitHub note:
 
 ## Output Location
 
-Processed files are written to:
+Strippr renders files into internal app storage and then exposes them through the browser download flow.
 
-```text
-C:\Users\<you>\Downloads\Strippr
-```
+Use:
 
-The app also exposes a download endpoint and a browser `Save As...` flow for supported Chromium browsers.
+- `Save As...` to choose the destination yourself in supported Chromium browsers
+- `Download cleaned video` to use your browser's normal download behavior
 
 ## Current Status
 

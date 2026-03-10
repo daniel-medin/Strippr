@@ -242,10 +242,18 @@ public sealed class CutPlanBuilder
             return 1;
         }
 
-        var targetDurationSeconds = durationSeconds / Math.Max(1, pauseSpeedMultiplier);
-        if (retainedSilenceSeconds > 0)
+        double targetDurationSeconds;
+        if (retainedSilenceSeconds > 0 && pauseSpeedMultiplier <= 1)
         {
-            targetDurationSeconds = Math.Max(retainedSilenceSeconds, targetDurationSeconds);
+            targetDurationSeconds = Math.Min(durationSeconds, retainedSilenceSeconds);
+        }
+        else
+        {
+            targetDurationSeconds = durationSeconds / Math.Max(1, pauseSpeedMultiplier);
+            if (retainedSilenceSeconds > 0)
+            {
+                targetDurationSeconds = Math.Max(retainedSilenceSeconds, targetDurationSeconds);
+            }
         }
 
         targetDurationSeconds = Math.Clamp(targetDurationSeconds, 0, durationSeconds);

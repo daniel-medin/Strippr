@@ -339,14 +339,14 @@ public sealed partial class FfmpegService
         if (renderSegments.Count == 1)
         {
             return new RenderPlan(
-                BuildSegmentFilters(renderSegments[0], 0) + "[v0]format=yuv420p[v];[a0]anull[a]",
+                BuildSegmentFilters(renderSegments[0], 0, frameRate) + "[v0]format=yuv420p[v];[a0]anull[a]",
                 0);
         }
 
         var builder = new StringBuilder();
         for (var index = 0; index < renderSegments.Count; index++)
         {
-            builder.Append(BuildSegmentFilters(renderSegments[index], index));
+            builder.Append(BuildSegmentFilters(renderSegments[index], index, frameRate));
         }
 
         var currentVideoLabel = "v0";
@@ -424,14 +424,16 @@ public sealed partial class FfmpegService
             appliedCrossfadeSeconds * hardCutTransitionCount);
     }
 
-    private static string BuildSegmentFilters(RenderSegment segment, int index)
+    private static string BuildSegmentFilters(RenderSegment segment, int index, double frameRate)
     {
         var builder = new StringBuilder();
         builder.Append("[0:v]trim=start=");
         builder.Append(segment.StartSeconds.ToString("0.###", CultureInfo.InvariantCulture));
         builder.Append(":end=");
         builder.Append(segment.EndSeconds.ToString("0.###", CultureInfo.InvariantCulture));
-        builder.Append(",setpts=");
+        builder.Append(",fps=");
+        builder.Append(Math.Max(1, frameRate).ToString("0.###", CultureInfo.InvariantCulture));
+        builder.Append(",settb=AVTB,setpts=");
         if (segment.PlaybackSpeed > 1)
         {
             builder.Append("(PTS-STARTPTS)/");

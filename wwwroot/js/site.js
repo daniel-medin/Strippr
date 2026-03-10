@@ -1,10 +1,27 @@
 (() => {
-  const saveButton = document.querySelector("[data-save-file]");
-  const saveStatus = document.querySelector("[data-save-status]");
+  const markExportConsumed = (trigger, message) => {
+    const resultPanel = trigger instanceof HTMLElement
+      ? trigger.closest("[data-result-panel]")
+      : null;
+    const saveStatus = resultPanel?.querySelector("[data-save-status]");
 
-  if (!saveButton || !saveStatus) {
-    return;
-  }
+    resultPanel?.querySelectorAll("[data-save-file], .download-actions a[download]").forEach((element) => {
+      if (element instanceof HTMLButtonElement) {
+        element.disabled = true;
+        return;
+      }
+
+      if (element instanceof HTMLAnchorElement) {
+        element.setAttribute("aria-disabled", "true");
+        element.classList.add("is-disabled");
+      }
+    });
+
+    if (saveStatus instanceof HTMLElement) {
+      saveStatus.hidden = false;
+      saveStatus.textContent = message;
+    }
+  };
 
   const fallbackDownload = (downloadUrl, fileName) => {
     const link = document.createElement("a");
@@ -15,7 +32,21 @@
     link.remove();
   };
 
-  saveButton.addEventListener("click", async () => {
+  document.addEventListener("click", async (event) => {
+    const saveButton = event.target instanceof HTMLElement
+      ? event.target.closest("[data-save-file]")
+      : null;
+    if (!(saveButton instanceof HTMLButtonElement)) {
+      return;
+    }
+
+    const saveStatus = document.querySelector("[data-save-status]");
+    if (!(saveStatus instanceof HTMLElement)) {
+      return;
+    }
+
+    event.preventDefault();
+
     const downloadUrl = saveButton.getAttribute("data-download-url");
     const fileName = saveButton.getAttribute("data-file-name") || "strippr-output.mp4";
 
@@ -26,6 +57,7 @@
     saveButton.disabled = true;
     saveStatus.hidden = false;
     saveStatus.textContent = "Preparing file...";
+    let exportConsumed = false;
 
     try {
       if (!("showSaveFilePicker" in window)) {
@@ -48,7 +80,8 @@
       const writable = await handle.createWritable();
       await writable.write(await response.blob());
       await writable.close();
-      saveStatus.textContent = "Saved successfully.";
+      exportConsumed = true;
+      markExportConsumed(saveButton, "Saved successfully. The temporary render has been removed from Strippr.");
     } catch (error) {
       if (error && error.name === "AbortError") {
         saveStatus.textContent = "Save cancelled.";
@@ -60,7 +93,23 @@
         saveStatus.textContent = "Save picker failed. Used normal download instead.";
       }
     } finally {
-      saveButton.disabled = false;
+      if (!exportConsumed) {
+        saveButton.disabled = false;
+      }
     }
+  });
+
+  document.addEventListener("click", (event) => {
+    const downloadLink = event.target instanceof HTMLElement
+      ? event.target.closest(".download-actions a[download]")
+      : null;
+
+    if (!(downloadLink instanceof HTMLAnchorElement)) {
+      return;
+    }
+
+    window.setTimeout(() => {
+      markExportConsumed(downloadLink, "Download started. This temporary render has been removed from Strippr.");
+    }, 250);
   });
 })();
