@@ -10,5 +10,5 @@ public sealed record VideoProcessingResult(
     double SourceDurationSeconds,
     double OutputDurationSeconds,
     double RemovedDurationSeconds,
-    int SilenceSegmentsDetected,
+    int RemovedSegmentsCount,
     bool CutsApplied);

@@ -17,36 +17,70 @@
     const submitButton = form.querySelector("button[type='submit']");
     const waveformPanel = form.querySelector("[data-waveform-panel]");
     const waveformViewport = form.querySelector("[data-waveform-viewport]");
+    const waveformStage = form.querySelector("[data-waveform-stage]");
     const waveformCanvas = form.querySelector("[data-waveform-canvas]");
+    const waveformOverlay = form.querySelector("[data-waveform-overlay]");
     const waveformStatus = form.querySelector("[data-waveform-status]");
     const thresholdReadout = form.querySelector("[data-threshold-readout]");
     const waveformVerticalZoom = form.querySelector("[data-waveform-vertical-zoom]");
     const waveformVerticalDisplay = form.querySelector("[data-waveform-vertical-display]");
     const waveformHorizontalZoom = form.querySelector("[data-waveform-horizontal-zoom]");
     const waveformHorizontalDisplay = form.querySelector("[data-waveform-horizontal-display]");
+    const manualCutRangesInput = form.querySelector("[data-manual-cut-ranges]");
+    const markerSummary = form.querySelector("[data-marker-summary]");
+    const markerList = form.querySelector("[data-marker-list]");
+    const addMarkerButtons = Array.from(form.querySelectorAll("[data-add-marker]"));
 
-    if (
-      processingPanel &&
-      processingFill &&
-      processingLabel &&
-      processingPercent &&
-      processingBar &&
-      fileInput &&
-      submitButton
-    ) {
+    if (processingPanel && processingFill && processingLabel && processingPercent && processingBar && fileInput && submitButton) {
       let progressValue = 0;
       let processingTimerId = null;
       let waveformPeaks = null;
+      let waveformDurationSeconds = 0;
       let waveformToken = 0;
       let verticalZoomValue = 1;
       let horizontalZoomValue = 1;
+      let playheadSeconds = null;
+      let markerSequence = 0;
+      let selectedMarkerId = null;
+      let dragMarkerId = null;
+      let manualMarkers = [];
+
+      const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+      const getWaveformWidth = () => waveformCanvas ? waveformCanvas.clientWidth || Number.parseFloat(waveformCanvas.style.width) || 0 : 0;
+      const secondsToX = (seconds) => waveformDurationSeconds > 0 ? clamp(seconds / waveformDurationSeconds, 0, 1) * getWaveformWidth() : 0;
+      const xToSeconds = (x) => {
+        const width = getWaveformWidth();
+        return width > 0 && waveformDurationSeconds > 0 ? clamp(x / width, 0, 1) * waveformDurationSeconds : 0;
+      };
+      const sortMarkers = () => [...manualMarkers].sort((a, b) => a.timeSeconds !== b.timeSeconds ? a.timeSeconds - b.timeSeconds : a.type === b.type ? a.id.localeCompare(b.id) : a.type === "in" ? -1 : 1);
+
+      const formatDuration = (seconds, includeTenths = false) => {
+        const safeSeconds = Math.max(0, seconds);
+        const wholeSeconds = Math.floor(safeSeconds);
+        const hours = Math.floor(wholeSeconds / 3600).toString().padStart(2, "0");
+        const minutes = Math.floor((wholeSeconds % 3600) / 60).toString().padStart(2, "0");
+        const remainingSeconds = (wholeSeconds % 60).toString().padStart(2, "0");
+        if (!includeTenths) {
+          return `${hours}:${minutes}:${remainingSeconds}`;
+        }
+
+        return `${hours}:${minutes}:${remainingSeconds}.${Math.floor((safeSeconds - wholeSeconds) * 10)}`;
+      };
+
+      const parseThresholdDb = () => {
+        if (!noiseInput) {
+          return -30;
+        }
+
+        const match = `${noiseInput.value}`.trim().match(/(-?\d+(?:\.\d+)?)\s*dB/i);
+        return match ? Number.parseFloat(match[1]) : null;
+      };
 
       const setProgress = (value, text) => {
-        progressValue = Math.max(0, Math.min(100, value));
+        progressValue = clamp(value, 0, 100);
         processingFill.style.width = `${progressValue}%`;
         processingPercent.textContent = `${Math.round(progressValue)}%`;
         processingBar.setAttribute("aria-valuenow", `${Math.round(progressValue)}`);
-
         if (text) {
           processingLabel.textContent = text;
         }
@@ -61,19 +95,12 @@
 
       const beginProcessingSimulation = () => {
         clearProcessingTimer();
-
         processingTimerId = window.setInterval(() => {
           if (progressValue < 54) {
             setProgress(progressValue + 2.5, "Analyzing silence...");
-            return;
-          }
-
-          if (progressValue < 84) {
+          } else if (progressValue < 84) {
             setProgress(progressValue + 1.6, "Rendering cleaned video...");
-            return;
-          }
-
-          if (progressValue < 96) {
+          } else if (progressValue < 96) {
             setProgress(progressValue + 0.45, "Finalizing output...");
           }
         }, 350);
@@ -85,31 +112,9 @@
         form.classList.remove("is-processing");
         processingLabel.textContent = "Processing failed.";
         processingPercent.textContent = `${Math.round(progressValue)}%`;
-
         if (validationSummary) {
           validationSummary.textContent = message;
         }
-      };
-
-      const parseThresholdDb = () => {
-        if (!noiseInput) {
-          return -30;
-        }
-
-        const match = `${noiseInput.value}`.trim().match(/(-?\d+(?:\.\d+)?)\s*dB/i);
-        return match ? Number.parseFloat(match[1]) : null;
-      };
-
-      const formatDuration = (seconds) => {
-        const totalSeconds = Math.max(0, Math.round(seconds));
-        const hours = Math.floor(totalSeconds / 3600)
-          .toString()
-          .padStart(2, "0");
-        const minutes = Math.floor((totalSeconds % 3600) / 60)
-          .toString()
-          .padStart(2, "0");
-        const remainingSeconds = (totalSeconds % 60).toString().padStart(2, "0");
-        return `${hours}:${minutes}:${remainingSeconds}`;
       };
 
       const updateThresholdReadout = () => {
@@ -118,13 +123,7 @@
         }
 
         const thresholdDb = parseThresholdDb();
-        if (thresholdDb === null) {
-          thresholdReadout.textContent = "Invalid dB";
-          return;
-        }
-
-        const amplitudeRatio = Math.pow(10, thresholdDb / 20) * 100;
-        thresholdReadout.textContent = `${thresholdDb.toFixed(1)} dB (${amplitudeRatio.toFixed(2)}% amp)`;
+        thresholdReadout.textContent = thresholdDb === null ? "Invalid dB" : `${thresholdDb.toFixed(1)} dB`;
       };
 
       const syncNoiseControls = () => {
@@ -134,7 +133,6 @@
 
         const sliderValue = Number.parseFloat(noiseSlider.value);
         noiseInput.value = `${sliderValue.toFixed(0)}dB`;
-
         if (noiseDisplay) {
           noiseDisplay.textContent = `${sliderValue.toFixed(0)} dB`;
         }
@@ -146,7 +144,6 @@
         }
 
         const sliderValue = Number.parseFloat(silenceSlider.value);
-
         if (silenceDisplay) {
           silenceDisplay.textContent = `${sliderValue.toFixed(1)} s`;
         }
@@ -155,7 +152,6 @@
       const syncWaveformZoomControls = () => {
         if (waveformVerticalZoom) {
           verticalZoomValue = Number.parseFloat(waveformVerticalZoom.value);
-
           if (waveformVerticalDisplay) {
             waveformVerticalDisplay.textContent = `${verticalZoomValue.toFixed(1)}x`;
           }
@@ -163,25 +159,224 @@
 
         if (waveformHorizontalZoom) {
           horizontalZoomValue = Number.parseFloat(waveformHorizontalZoom.value);
-
           if (waveformHorizontalDisplay) {
             waveformHorizontalDisplay.textContent = `${horizontalZoomValue.toFixed(1)}x`;
           }
         }
       };
 
+      const setMarkerButtonsEnabled = (isEnabled) => {
+        addMarkerButtons.forEach((button) => {
+          button.disabled = !isEnabled;
+        });
+      };
+
+      const buildManualCutRanges = () => {
+        const orderedMarkers = sortMarkers();
+        const ranges = [];
+        let openInMarker = null;
+
+        orderedMarkers.forEach((marker) => {
+          if (marker.type === "in") {
+            openInMarker = marker;
+            return;
+          }
+
+          if (!openInMarker || marker.timeSeconds <= openInMarker.timeSeconds) {
+            return;
+          }
+
+          ranges.push({ startSeconds: openInMarker.timeSeconds, endSeconds: marker.timeSeconds });
+          openInMarker = null;
+        });
+
+        return { orderedMarkers, ranges, unpairedCount: Math.max(0, orderedMarkers.length - ranges.length * 2) };
+      };
+
+      const renderMarkerList = (orderedMarkers) => {
+        if (!markerList) {
+          return;
+        }
+
+        if (orderedMarkers.length === 0) {
+          markerList.hidden = true;
+          markerList.innerHTML = "";
+          return;
+        }
+
+        markerList.hidden = false;
+        markerList.innerHTML = orderedMarkers.map((marker) => `
+          <div class="marker-chip${marker.id === selectedMarkerId ? " is-selected" : ""}">
+            <button type="button" class="marker-chip-main" data-marker-focus="${marker.id}">
+              <span class="marker-chip-type">${marker.type === "in" ? "In" : "Out"}</span>
+              <span>${formatDuration(marker.timeSeconds, true)}</span>
+            </button>
+            <button type="button" class="marker-chip-delete" data-marker-remove="${marker.id}" aria-label="Delete marker">
+              Remove
+            </button>
+          </div>
+        `).join("");
+      };
+
+      const updateMarkerSummary = (ranges, unpairedCount) => {
+        if (!markerSummary) {
+          return;
+        }
+
+        if (manualMarkers.length === 0) {
+          markerSummary.hidden = true;
+          markerSummary.textContent = "";
+          return;
+        }
+
+        markerSummary.hidden = false;
+        markerSummary.textContent = `${ranges.length} cut ${ranges.length === 1 ? "range" : "ranges"} ready; ${
+          unpairedCount > 0
+            ? `${unpairedCount} marker${unpairedCount === 1 ? "" : "s"} waiting for a pair`
+            : "all markers are paired"
+        }.`;
+      };
+
+      const renderWaveformOverlay = () => {
+        if (!waveformOverlay || waveformDurationSeconds <= 0) {
+          if (waveformOverlay) {
+            waveformOverlay.innerHTML = "";
+          }
+
+          return;
+        }
+
+        waveformOverlay.innerHTML = "";
+        const { orderedMarkers, ranges } = buildManualCutRanges();
+
+        ranges.forEach((range) => {
+          const region = document.createElement("div");
+          region.className = "waveform-cut-region";
+          region.style.left = `${secondsToX(range.startSeconds)}px`;
+          region.style.width = `${Math.max(2, secondsToX(range.endSeconds) - secondsToX(range.startSeconds))}px`;
+          waveformOverlay.appendChild(region);
+        });
+
+        if (playheadSeconds !== null) {
+          const playhead = document.createElement("div");
+          playhead.className = "waveform-playhead";
+          playhead.style.left = `${secondsToX(playheadSeconds)}px`;
+          waveformOverlay.appendChild(playhead);
+        }
+
+        orderedMarkers.forEach((marker) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = `waveform-marker-button ${marker.type === "in" ? "is-in" : "is-out"}${marker.id === selectedMarkerId ? " is-selected" : ""}`;
+          button.setAttribute("data-marker-id", marker.id);
+          button.setAttribute("aria-label", `${marker.type === "in" ? "In" : "Out"} marker at ${formatDuration(marker.timeSeconds, true)}`);
+          button.style.left = `${secondsToX(marker.timeSeconds)}px`;
+          button.innerHTML = '<span class="waveform-marker-line"></span><span class="waveform-marker-flag"></span>';
+          waveformOverlay.appendChild(button);
+        });
+      };
+
+      const syncManualCutRangesInput = () => {
+        const { orderedMarkers, ranges, unpairedCount } = buildManualCutRanges();
+        if (manualCutRangesInput) {
+          manualCutRangesInput.value = JSON.stringify(ranges.map((range) => ({
+            startSeconds: Number(range.startSeconds.toFixed(3)),
+            endSeconds: Number(range.endSeconds.toFixed(3)),
+          })));
+        }
+
+        updateMarkerSummary(ranges, unpairedCount);
+        renderMarkerList(orderedMarkers);
+        renderWaveformOverlay();
+      };
+
+      const resetManualCuts = () => {
+        manualMarkers = [];
+        markerSequence = 0;
+        selectedMarkerId = null;
+        dragMarkerId = null;
+        playheadSeconds = null;
+        if (manualCutRangesInput) {
+          manualCutRangesInput.value = "[]";
+        }
+
+        if (markerSummary) {
+          markerSummary.hidden = true;
+          markerSummary.textContent = "";
+        }
+
+        if (markerList) {
+          markerList.hidden = true;
+          markerList.innerHTML = "";
+        }
+
+        if (waveformOverlay) {
+          waveformOverlay.innerHTML = "";
+        }
+      };
+
+      const getInsertionSeconds = () => {
+        if (playheadSeconds !== null) {
+          return playheadSeconds;
+        }
+
+        return waveformViewport ? xToSeconds(waveformViewport.scrollLeft + waveformViewport.clientWidth / 2) : 0;
+      };
+
+      const addMarker = (type) => {
+        if (waveformDurationSeconds <= 0) {
+          return;
+        }
+
+        const marker = {
+          id: `marker-${++markerSequence}`,
+          type,
+          timeSeconds: clamp(getInsertionSeconds(), 0, waveformDurationSeconds),
+        };
+
+        manualMarkers.push(marker);
+        selectedMarkerId = marker.id;
+        syncManualCutRangesInput();
+      };
+
+      const removeMarker = (markerId) => {
+        manualMarkers = manualMarkers.filter((marker) => marker.id !== markerId);
+        if (selectedMarkerId === markerId) {
+          selectedMarkerId = null;
+        }
+
+        if (dragMarkerId === markerId) {
+          dragMarkerId = null;
+        }
+
+        syncManualCutRangesInput();
+      };
+
+      const updateMarkerTime = (markerId, timeSeconds) => {
+        manualMarkers = manualMarkers.map((marker) => marker.id === markerId ? { ...marker, timeSeconds: clamp(timeSeconds, 0, waveformDurationSeconds) } : marker);
+        selectedMarkerId = markerId;
+        syncManualCutRangesInput();
+      };
+
+      const placePlayheadFromClientX = (clientX) => {
+        if (!waveformStage || waveformDurationSeconds <= 0) {
+          return;
+        }
+
+        const bounds = waveformStage.getBoundingClientRect();
+        playheadSeconds = xToSeconds(clientX - bounds.left);
+        renderWaveformOverlay();
+      };
+
       const drawWaveform = () => {
         if (!waveformCanvas || !waveformPanel || !waveformViewport || !waveformPeaks || waveformPeaks.length === 0) {
+          renderWaveformOverlay();
           return;
         }
 
         const previousScrollLeft = waveformViewport.scrollLeft;
-        const previousScrollableWidth = Math.max(
-          1,
-          waveformViewport.scrollWidth - waveformViewport.clientWidth,
-        );
+        const previousScrollableWidth = Math.max(1, waveformViewport.scrollWidth - waveformViewport.clientWidth);
         const scrollRatio = previousScrollableWidth > 0 ? previousScrollLeft / previousScrollableWidth : 0;
-
         const viewportWidth = Math.max(320, Math.floor(waveformViewport.clientWidth || waveformPanel.clientWidth || 640));
         const cssWidth = Math.max(viewportWidth, Math.floor(viewportWidth * horizontalZoomValue));
         const cssHeight = 220;
@@ -190,6 +385,11 @@
         waveformCanvas.height = Math.floor(cssHeight * pixelRatio);
         waveformCanvas.style.width = `${cssWidth}px`;
         waveformCanvas.style.height = `${cssHeight}px`;
+
+        if (waveformStage) {
+          waveformStage.style.width = `${cssWidth}px`;
+          waveformStage.style.height = `${cssHeight}px`;
+        }
 
         const context = waveformCanvas.getContext("2d");
         if (!context) {
@@ -200,16 +400,10 @@
         context.clearRect(0, 0, cssWidth, cssHeight);
 
         const centerY = cssHeight / 2;
-        const topPadding = 18;
-        const bottomPadding = 18;
-        const drawableHeight = cssHeight - topPadding - bottomPadding;
-        const halfHeight = (drawableHeight / 2) * verticalZoomValue;
-
+        const drawableHalfHeight = ((cssHeight - 36) / 2) * verticalZoomValue;
         context.fillStyle = "rgba(255, 249, 239, 0.95)";
         context.fillRect(0, 0, cssWidth, cssHeight);
-
         context.strokeStyle = "rgba(32, 24, 19, 0.10)";
-        context.lineWidth = 1;
         context.beginPath();
         context.moveTo(0, centerY);
         context.lineTo(cssWidth, centerY);
@@ -218,44 +412,35 @@
         const thresholdDb = parseThresholdDb();
         if (thresholdDb !== null) {
           const amplitude = Math.max(0, Math.min(1, Math.pow(10, thresholdDb / 20)));
-          const offset = amplitude * halfHeight;
-          const upperY = centerY - offset;
-          const lowerY = centerY + offset;
-
+          const offset = amplitude * drawableHalfHeight;
           context.strokeStyle = "rgba(220, 95, 49, 0.85)";
           context.lineWidth = 1.5;
           context.setLineDash([8, 6]);
           context.beginPath();
-          context.moveTo(0, upperY);
-          context.lineTo(cssWidth, upperY);
-          context.moveTo(0, lowerY);
-          context.lineTo(cssWidth, lowerY);
+          context.moveTo(0, centerY - offset);
+          context.lineTo(cssWidth, centerY - offset);
+          context.moveTo(0, centerY + offset);
+          context.lineTo(cssWidth, centerY + offset);
           context.stroke();
           context.setLineDash([]);
         }
 
         context.strokeStyle = "rgba(32, 24, 19, 0.75)";
         context.lineWidth = 1;
-
         const columnWidth = cssWidth / waveformPeaks.length;
 
         for (let index = 0; index < waveformPeaks.length; index += 1) {
           const peak = waveformPeaks[index];
           const x = index * columnWidth + columnWidth / 2;
-          const yTop = centerY - peak.max * halfHeight;
-          const yBottom = centerY - peak.min * halfHeight;
-
           context.beginPath();
-          context.moveTo(x, yTop);
-          context.lineTo(x, yBottom);
+          context.moveTo(x, centerY - peak.max * drawableHalfHeight);
+          context.lineTo(x, centerY - peak.min * drawableHalfHeight);
           context.stroke();
         }
 
+        renderWaveformOverlay();
         window.requestAnimationFrame(() => {
-          const nextScrollableWidth = Math.max(
-            0,
-            waveformViewport.scrollWidth - waveformViewport.clientWidth,
-          );
+          const nextScrollableWidth = Math.max(0, waveformViewport.scrollWidth - waveformViewport.clientWidth);
           waveformViewport.scrollLeft = nextScrollableWidth * scrollRatio;
         });
       };
@@ -263,14 +448,12 @@
       const buildWaveformPeaks = (audioBuffer, sampleCount) => {
         const channelCount = audioBuffer.numberOfChannels;
         const channels = [];
-
         for (let index = 0; index < channelCount; index += 1) {
           channels.push(audioBuffer.getChannelData(index));
         }
 
         const blockSize = Math.max(1, Math.floor(audioBuffer.length / sampleCount));
         const peaks = [];
-
         for (let blockIndex = 0; blockIndex < sampleCount; blockIndex += 1) {
           const start = blockIndex * blockSize;
           const end = Math.min(start + blockSize, audioBuffer.length);
@@ -279,7 +462,6 @@
 
           for (let sampleIndex = start; sampleIndex < end; sampleIndex += 1) {
             let sample = 0;
-
             for (let channelIndex = 0; channelIndex < channelCount; channelIndex += 1) {
               sample += channels[channelIndex][sampleIndex] || 0;
             }
@@ -308,25 +490,25 @@
         const file = fileInput.files && fileInput.files[0];
         const token = ++waveformToken;
         updateThresholdReadout();
+        resetManualCuts();
+        waveformDurationSeconds = 0;
+        waveformPeaks = null;
+        setMarkerButtonsEnabled(false);
 
         if (!file) {
           waveformPanel.hidden = true;
-          waveformPeaks = null;
           return;
         }
 
         waveformPanel.hidden = false;
         waveformStatus.textContent = "Analyzing local audio track...";
-
         const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
         if (!AudioContextCtor) {
           waveformStatus.textContent = "This browser cannot decode audio for waveform preview.";
-          waveformPeaks = null;
           return;
         }
 
         let audioContext = null;
-
         try {
           const arrayBuffer = await file.arrayBuffer();
           if (token !== waveformToken) {
@@ -339,17 +521,17 @@
             return;
           }
 
-          const desiredSamples = Math.min(
-            1200,
-            Math.max(320, Math.floor(waveformPanel.clientWidth || 720)),
-          );
-
-          waveformPeaks = buildWaveformPeaks(audioBuffer, desiredSamples);
+          waveformDurationSeconds = audioBuffer.duration;
+          playheadSeconds = 0;
+          waveformPeaks = buildWaveformPeaks(audioBuffer, Math.min(1200, Math.max(320, Math.floor(waveformPanel.clientWidth || 720))));
           waveformStatus.textContent = `${file.name} | ${formatDuration(audioBuffer.duration)} | preview only`;
+          setMarkerButtonsEnabled(true);
           drawWaveform();
         } catch {
-          waveformPeaks = null;
+          waveformDurationSeconds = 0;
+          playheadSeconds = null;
           waveformStatus.textContent = "Could not decode audio from this file in the browser.";
+          renderWaveformOverlay();
         } finally {
           if (audioContext) {
             audioContext.close().catch(() => {});
@@ -364,7 +546,6 @@
         }
 
         syncNoiseControls();
-
         noiseSlider.addEventListener("input", () => {
           syncNoiseControls();
           updateThresholdReadout();
@@ -374,14 +555,13 @@
 
       if (silenceSlider) {
         syncSilenceControls();
-
         silenceSlider.addEventListener("input", () => {
           syncSilenceControls();
         });
       }
 
       syncWaveformZoomControls();
-
+      setMarkerButtonsEnabled(false);
       if (waveformVerticalZoom) {
         waveformVerticalZoom.addEventListener("input", () => {
           syncWaveformZoomControls();
@@ -396,6 +576,135 @@
         });
       }
 
+      addMarkerButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const markerType = button.getAttribute("data-add-marker");
+          if (markerType === "in" || markerType === "out") {
+            addMarker(markerType);
+          }
+        });
+      });
+
+      if (waveformStage) {
+        waveformStage.addEventListener("click", (event) => {
+          const target = event.target;
+          if (target instanceof HTMLElement && target.closest("[data-marker-id]")) {
+            return;
+          }
+
+          placePlayheadFromClientX(event.clientX);
+        });
+      }
+
+      if (waveformOverlay) {
+        waveformOverlay.addEventListener("click", (event) => {
+          const target = event.target;
+          if (!(target instanceof HTMLElement)) {
+            return;
+          }
+
+          const markerButton = target.closest("[data-marker-id]");
+          if (!markerButton) {
+            return;
+          }
+
+          selectedMarkerId = markerButton.getAttribute("data-marker-id");
+          renderWaveformOverlay();
+          renderMarkerList(sortMarkers());
+        });
+
+        waveformOverlay.addEventListener("dblclick", (event) => {
+          const target = event.target;
+          if (!(target instanceof HTMLElement)) {
+            return;
+          }
+
+          const markerButton = target.closest("[data-marker-id]");
+          if (!markerButton) {
+            return;
+          }
+
+          event.preventDefault();
+          removeMarker(markerButton.getAttribute("data-marker-id"));
+        });
+
+        waveformOverlay.addEventListener("pointerdown", (event) => {
+          const target = event.target;
+          if (!(target instanceof HTMLElement)) {
+            return;
+          }
+
+          const markerButton = target.closest("[data-marker-id]");
+          if (!markerButton) {
+            return;
+          }
+
+          event.preventDefault();
+          dragMarkerId = markerButton.getAttribute("data-marker-id");
+          selectedMarkerId = dragMarkerId;
+          renderWaveformOverlay();
+          renderMarkerList(sortMarkers());
+        });
+      }
+
+      window.addEventListener("pointermove", (event) => {
+        if (!dragMarkerId || !waveformStage) {
+          return;
+        }
+
+        const bounds = waveformStage.getBoundingClientRect();
+        updateMarkerTime(dragMarkerId, xToSeconds(event.clientX - bounds.left));
+      });
+
+      window.addEventListener("pointerup", () => {
+        dragMarkerId = null;
+      });
+
+      window.addEventListener("keydown", (event) => {
+        if (!selectedMarkerId) {
+          return;
+        }
+
+        const activeTagName = document.activeElement ? document.activeElement.tagName : "";
+        if (activeTagName === "INPUT" || activeTagName === "TEXTAREA") {
+          return;
+        }
+
+        if (event.key === "Delete" || event.key === "Backspace") {
+          event.preventDefault();
+          removeMarker(selectedMarkerId);
+        }
+      });
+
+      if (markerList) {
+        markerList.addEventListener("click", (event) => {
+          const target = event.target;
+          if (!(target instanceof HTMLElement)) {
+            return;
+          }
+
+          const removeButton = target.closest("[data-marker-remove]");
+          if (removeButton) {
+            removeMarker(removeButton.getAttribute("data-marker-remove"));
+            return;
+          }
+
+          const focusButton = target.closest("[data-marker-focus]");
+          if (!focusButton) {
+            return;
+          }
+
+          selectedMarkerId = focusButton.getAttribute("data-marker-focus");
+          const selectedMarker = manualMarkers.find((marker) => marker.id === selectedMarkerId);
+          if (selectedMarker) {
+            playheadSeconds = selectedMarker.timeSeconds;
+          }
+
+          renderWaveformOverlay();
+          renderMarkerList(sortMarkers());
+        });
+      }
+
       fileInput.addEventListener("change", () => {
         analyzeSelectedFile();
       });
@@ -405,6 +714,7 @@
       });
 
       updateThresholdReadout();
+      resetManualCuts();
 
       form.addEventListener("submit", (event) => {
         if (!fileInput.files || fileInput.files.length === 0) {
@@ -417,17 +727,14 @@
         }
 
         event.preventDefault();
-
         processingPanel.hidden = false;
         form.classList.add("is-processing");
         submitButton.disabled = true;
-
         if (validationSummary) {
           validationSummary.textContent = "";
         }
 
         setProgress(3, "Preparing upload...");
-
         const request = new XMLHttpRequest();
         request.open(form.method || "POST", form.action || window.location.href, true);
         request.responseType = "text";
@@ -439,8 +746,7 @@
             return;
           }
 
-          const uploadProgress = (uploadEvent.loaded / uploadEvent.total) * 38;
-          setProgress(Math.max(6, uploadProgress), "Uploading video...");
+          setProgress(Math.max(6, (uploadEvent.loaded / uploadEvent.total) * 38), "Uploading video...");
         });
 
         request.upload.addEventListener("load", () => {
@@ -450,7 +756,6 @@
 
         request.addEventListener("load", () => {
           clearProcessingTimer();
-
           if (request.status >= 200 && request.status < 300 && typeof request.responseText === "string") {
             setProgress(100, "Reloading result...");
             document.open();
@@ -477,7 +782,6 @@
 
   const saveButton = document.querySelector("[data-save-file]");
   const saveStatus = document.querySelector("[data-save-status]");
-
   if (!saveButton || !saveStatus) {
     return;
   }
@@ -494,7 +798,6 @@
   saveButton.addEventListener("click", async () => {
     const downloadUrl = saveButton.getAttribute("data-download-url");
     const fileName = saveButton.getAttribute("data-file-name") || "strippr-output.mp4";
-
     if (!downloadUrl) {
       return;
     }
@@ -512,43 +815,29 @@
 
       const handle = await window.showSaveFilePicker({
         suggestedName: fileName,
-        types: [
-          {
-            description: "Video file",
-            accept: {
-              "video/mp4": [".mp4", ".mov", ".m4v"],
-            },
-          },
-        ],
+        types: [{ description: "Video file", accept: { "video/mp4": [".mp4", ".mov", ".m4v"] } }],
       });
 
       saveStatus.textContent = "Downloading file...";
-
       const response = await fetch(downloadUrl, { credentials: "same-origin" });
       if (!response.ok) {
         throw new Error("Download failed.");
       }
 
-      const blob = await response.blob();
       const writable = await handle.createWritable();
-      await writable.write(blob);
+      await writable.write(await response.blob());
       await writable.close();
-
       saveStatus.textContent = "Saved successfully.";
     } catch (error) {
       if (error && error.name === "AbortError") {
         saveStatus.textContent = "Save cancelled.";
-        return;
-      }
-
-      if (error && error.name === "SecurityError") {
+      } else if (error && error.name === "SecurityError") {
         fallbackDownload(downloadUrl, fileName);
         saveStatus.textContent = "Browser blocked the save picker. Used normal download instead.";
-        return;
+      } else {
+        fallbackDownload(downloadUrl, fileName);
+        saveStatus.textContent = "Save picker failed. Used normal download instead.";
       }
-
-      fallbackDownload(downloadUrl, fileName);
-      saveStatus.textContent = "Save picker failed. Used normal download instead.";
     } finally {
       saveButton.disabled = false;
     }

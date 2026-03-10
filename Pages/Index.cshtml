@@ -66,6 +66,8 @@
             </label>
         </div>
 
+        <input asp-for="Input.ManualCutRangesJson" type="hidden" data-manual-cut-ranges />
+
         <section class="waveform-panel" data-waveform-panel hidden>
             <div class="waveform-head">
                 <div>
@@ -90,8 +92,20 @@
                     </div>
                 </label>
             </div>
+            <div class="waveform-actions">
+                <div class="waveform-action-buttons">
+                    <button class="timeline-button" type="button" data-add-marker="in">Add In</button>
+                    <button class="timeline-button" type="button" data-add-marker="out">Add Out</button>
+                </div>
+                <p class="waveform-help">
+                    Click the waveform to place the playhead, then add In and Out markers. Drag markers to adjust them and remove any marker from the list below.
+                </p>
+            </div>
             <div class="waveform-viewport" data-waveform-viewport>
-                <canvas class="waveform-canvas" data-waveform-canvas></canvas>
+                <div class="waveform-stage" data-waveform-stage>
+                    <canvas class="waveform-canvas" data-waveform-canvas></canvas>
+                    <div class="waveform-overlay" data-waveform-overlay></div>
+                </div>
             </div>
             <div class="waveform-scale">
                 <span>0 dB</span>
@@ -99,6 +113,8 @@
                 <span>-inf</span>
             </div>
             <p class="waveform-status" data-waveform-status>Choose a video file to analyze its audio.</p>
+            <p class="marker-summary" data-marker-summary hidden></p>
+            <div class="marker-list" data-marker-list hidden></div>
         </section>
 
         <button class="submit-button" type="submit" disabled="@(!Model.FfmpegAvailable)">
@@ -153,8 +169,8 @@
                     <dd>@Model.FormatSeconds(Model.Result.RemovedDurationSeconds)</dd>
                 </div>
                 <div>
-                    <dt>Silence ranges</dt>
-                    <dd>@Model.Result.SilenceSegmentsDetected</dd>
+                    <dt>Cut ranges</dt>
+                    <dd>@Model.Result.RemovedSegmentsCount</dd>
                 </div>
             </dl>
 

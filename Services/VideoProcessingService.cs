@@ -30,6 +30,7 @@ public sealed class VideoProcessingService
         IFormFile video,
         string noiseThreshold,
         double minimumSilenceSeconds,
+        IReadOnlyList<SilenceInterval> manualCutRanges,
         CancellationToken cancellationToken)
     {
         var health = await _ffmpegService.GetHealthStatusAsync(cancellationToken);
@@ -45,7 +46,7 @@ public sealed class VideoProcessingService
                 SourceDurationSeconds: 0,
                 OutputDurationSeconds: 0,
                 RemovedDurationSeconds: 0,
-                SilenceSegmentsDetected: 0,
+                RemovedSegmentsCount: 0,
                 CutsApplied: false);
         }
 
@@ -74,9 +75,13 @@ public sealed class VideoProcessingService
                 minimumSilenceSeconds,
                 cancellationToken);
 
+            var removedIntervals = analysis.SilenceIntervals
+                .Concat(manualCutRanges)
+                .ToList();
+
             var cutPlan = _cutPlanBuilder.Build(
                 analysis.DurationSeconds,
-                analysis.SilenceIntervals,
+                removedIntervals,
                 _options.MinimumKeepSegmentSeconds);
 
             if (cutPlan.RemovedSegments.Count == 0)
@@ -84,9 +89,13 @@ public sealed class VideoProcessingService
                 var passthroughOutputPath = _workspaceService.CreateOutputPath(video.FileName, useMp4Extension: false);
                 File.Copy(uploadPath, passthroughOutputPath, overwrite: true);
 
+                var passthroughMessage = manualCutRanges.Count > 0
+                    ? "No valid silence or manual cut ranges were left after normalization, so the original file was copied as-is."
+                    : "No silence matched the current thresholds, so the original file was copied as-is.";
+
                 return new VideoProcessingResult(
                     Success: true,
-                    Message: "No silence matched the current thresholds, so the original file was copied as-is.",
+                    Message: passthroughMessage,
                     OriginalFileName: video.FileName,
                     OutputFileName: Path.GetFileName(passthroughOutputPath),
                     OutputPath: passthroughOutputPath,
@@ -94,13 +103,13 @@ public sealed class VideoProcessingService
                     SourceDurationSeconds: analysis.DurationSeconds,
                     OutputDurationSeconds: analysis.DurationSeconds,
                     RemovedDurationSeconds: 0,
-                    SilenceSegmentsDetected: 0,
+                    RemovedSegmentsCount: 0,
                     CutsApplied: false);
             }
 
             if (cutPlan.KeepSegments.Count == 0)
             {
-                return BuildFailure(video.FileName, "Everything was classified as silence. Lower the silence threshold and try again.");
+                return BuildFailure(video.FileName, "The combined silence and manual cut ranges removed the entire clip. Reduce the cuts and try again.");
             }
 
             var outputPath = _workspaceService.CreateOutputPath(video.FileName, useMp4Extension: true);
@@ -110,9 +119,13 @@ public sealed class VideoProcessingService
                 cutPlan.KeepSegments,
                 cancellationToken);
 
+            var successMessage = manualCutRanges.Count > 0
+                ? "Video processed successfully with manual cut markers."
+                : "Video processed successfully.";
+
             return new VideoProcessingResult(
                 Success: true,
-                Message: "Video processed successfully.",
+                Message: successMessage,
                 OriginalFileName: video.FileName,
                 OutputFileName: Path.GetFileName(outputPath),
                 OutputPath: outputPath,
@@ -120,7 +133,7 @@ public sealed class VideoProcessingService
                 SourceDurationSeconds: cutPlan.SourceDurationSeconds,
                 OutputDurationSeconds: cutPlan.OutputDurationSeconds,
                 RemovedDurationSeconds: cutPlan.RemovedDurationSeconds,
-                SilenceSegmentsDetected: cutPlan.RemovedSegments.Count,
+                RemovedSegmentsCount: cutPlan.RemovedSegments.Count,
                 CutsApplied: true);
         }
         catch (Exception exception)
@@ -142,7 +155,7 @@ public sealed class VideoProcessingService
             SourceDurationSeconds: 0,
             OutputDurationSeconds: 0,
             RemovedDurationSeconds: 0,
-            SilenceSegmentsDetected: 0,
+            RemovedSegmentsCount: 0,
             CutsApplied: false);
     }
 }

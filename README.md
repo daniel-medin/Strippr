@@ -1,5 +1,7 @@
 # Strippr
 
+![Strippr logo](wwwroot/img/logo.png)
+
 Local-first video cleanup for dead air and silence.
 
 Strippr is an ASP.NET Core 9 Razor Pages app that lets you upload a video, preview its audio waveform, tune silence thresholds, process the file with FFmpeg, and export a cleaned result without sending media to a cloud service.
@@ -63,6 +65,19 @@ Important GitHub note:
 
 The extracted FFmpeg runtime is intentionally ignored by git.
 
+## Licensing
+
+Strippr source code is licensed under MIT.
+
+Bundled FFmpeg is distributed under its own license terms and is not relicensed under MIT. See FFmpeg licensing and the bundled upstream attribution files when distributing it.
+
+Practical rules for this repo:
+
+- keep `LICENSE` as the license for Strippr application code
+- do not remove or replace FFmpeg's own license terms
+- include FFmpeg license and attribution materials when redistributing a bundled FFmpeg build
+- treat FFmpeg as a separate third-party dependency with its own terms
+
 ## Output Location
 
 Processed files are written to:
@@ -107,3 +122,5 @@ tools/ffmpeg FFmpeg bootstrap location
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+Third-party licensing notes are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

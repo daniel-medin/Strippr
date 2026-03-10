@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Extensions.Options;
@@ -42,10 +43,18 @@ public sealed class IndexModel : PageModel
     public async Task<IActionResult> OnPostAsync(CancellationToken cancellationToken)
     {
         await LoadHealthAsync(cancellationToken);
+        var manualCutRanges = ParseManualCutRanges(Input.ManualCutRangesJson);
 
         if (Input.Video is null)
         {
             ModelState.AddModelError($"{nameof(Input)}.{nameof(Input.Video)}", "Choose a video file first.");
+        }
+
+        if (manualCutRanges is null)
+        {
+            ModelState.AddModelError(
+                $"{nameof(Input)}.{nameof(Input.ManualCutRangesJson)}",
+                "The manual cut markers could not be read. Refresh the page and try again.");
         }
 
         if (!ModelState.IsValid)
@@ -57,6 +66,7 @@ public sealed class IndexModel : PageModel
             Input.Video!,
             Input.NoiseThreshold,
             Input.MinimumSilenceSeconds,
+            manualCutRanges!,
             cancellationToken);
 
         if (!Result.Success)
@@ -77,7 +87,8 @@ public sealed class IndexModel : PageModel
         Input = new InputModel
         {
             NoiseThreshold = _options.DefaultNoiseThreshold,
-            MinimumSilenceSeconds = _options.DefaultMinimumSilenceSeconds
+            MinimumSilenceSeconds = _options.DefaultMinimumSilenceSeconds,
+            ManualCutRangesJson = "[]"
         };
     }
 
@@ -99,5 +110,43 @@ public sealed class IndexModel : PageModel
 
         [Range(0.1, 10)]
         public double MinimumSilenceSeconds { get; set; }
+
+        public string ManualCutRangesJson { get; set; } = "[]";
     }
+
+    private static IReadOnlyList<SilenceInterval>? ParseManualCutRanges(string? manualCutRangesJson)
+    {
+        if (string.IsNullOrWhiteSpace(manualCutRangesJson))
+        {
+            return [];
+        }
+
+        try
+        {
+            var ranges = JsonSerializer.Deserialize<List<ManualCutRangePayload>>(
+                manualCutRangesJson,
+                new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+            if (ranges is null)
+            {
+                return [];
+            }
+
+            return ranges
+                .Select(range => new SilenceInterval(range.StartSeconds, range.EndSeconds))
+                .Where(range =>
+                    double.IsFinite(range.StartSeconds) &&
+                    double.IsFinite(range.EndSeconds) &&
+                    range.EndSeconds > range.StartSeconds)
+                .ToList();
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private sealed record ManualCutRangePayload(double StartSeconds, double EndSeconds);
 }
