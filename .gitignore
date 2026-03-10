@@ -1,0 +1,8 @@
+bin/
+obj/
+App_Data/uploads/
+App_Data/outputs/
+App_Data/temp/
+tools/ffmpeg/package/
+*.user
+*.suo

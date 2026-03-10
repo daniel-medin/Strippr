@@ -1,0 +1,187 @@
+@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Strip Silence From Local Video";
+}
+
+<section class="hero-shell">
+    <div class="hero-copy">
+        <p class="eyebrow">Local video cleanup</p>
+        <h1>Strippr</h1>
+        <p class="hero-text">
+            Upload a clip, detect silence with FFmpeg, and download a tighter cut without leaving your machine.
+        </p>
+    </div>
+    <div class="health-panel @(Model.FfmpegAvailable ? "online" : "offline")">
+        <span class="health-label">FFmpeg</span>
+        <strong>@(Model.FfmpegAvailable ? "Ready" : "Missing")</strong>
+        <p>@Model.FfmpegStatusMessage</p>
+    </div>
+</section>
+
+<section class="panel-card process-card">
+    <div class="panel-head">
+        <div>
+            <p class="panel-kicker">Process one file</p>
+            <h2>Upload and cut</h2>
+        </div>
+        <span class="panel-tag">MVP</span>
+    </div>
+
+    <form method="post" enctype="multipart/form-data" class="strippr-form" data-processing-form>
+        <div asp-validation-summary="ModelOnly" class="validation-summary"></div>
+
+        <label class="dropzone" asp-for="Input.Video">
+            <span class="dropzone-label">Video file</span>
+            <input asp-for="Input.Video" type="file" accept="video/*" />
+            <span class="dropzone-copy">Choose a local video file to process.</span>
+        </label>
+
+        <div class="field-grid">
+            <label class="field">
+                <span>Noise threshold</span>
+                <div class="slider-head">
+                    <strong data-noise-display>-30 dB</strong>
+                    <small>Lower values are less aggressive.</small>
+                </div>
+                <input asp-for="Input.NoiseThreshold" type="hidden" />
+                <input type="range" min="-60" max="0" step="1" value="-30" data-noise-slider />
+                <div class="slider-scale">
+                    <span>-60 dB</span>
+                    <span>0 dB</span>
+                </div>
+            </label>
+
+            <label class="field">
+                <span>Minimum silence</span>
+                <div class="slider-head">
+                    <strong data-silence-display>0.5 s</strong>
+                    <small>Silence must last at least this long to be removed.</small>
+                </div>
+                <input asp-for="Input.MinimumSilenceSeconds" type="range" min="0.1" max="3" step="0.1" data-silence-slider />
+                <div class="slider-scale">
+                    <span>0.1 s</span>
+                    <span>3.0 s</span>
+                </div>
+            </label>
+        </div>
+
+        <section class="waveform-panel" data-waveform-panel hidden>
+            <div class="waveform-head">
+                <div>
+                    <p class="panel-kicker">Audio analysis</p>
+                    <h3>Waveform preview</h3>
+                </div>
+                <span class="waveform-threshold" data-threshold-readout>-30dB</span>
+            </div>
+            <div class="waveform-toolbar">
+                <label class="waveform-control">
+                    <span>Vertical zoom</span>
+                    <div class="waveform-control-row">
+                        <input type="range" min="1" max="6" step="0.1" value="1" data-waveform-vertical-zoom />
+                        <strong data-waveform-vertical-display>1.0x</strong>
+                    </div>
+                </label>
+                <label class="waveform-control">
+                    <span>Horizontal zoom</span>
+                    <div class="waveform-control-row">
+                        <input type="range" min="1" max="12" step="0.5" value="1" data-waveform-horizontal-zoom />
+                        <strong data-waveform-horizontal-display>1.0x</strong>
+                    </div>
+                </label>
+            </div>
+            <div class="waveform-viewport" data-waveform-viewport>
+                <canvas class="waveform-canvas" data-waveform-canvas></canvas>
+            </div>
+            <div class="waveform-scale">
+                <span>0 dB</span>
+                <span>Scroll horizontally when zoomed in</span>
+                <span>-inf</span>
+            </div>
+            <p class="waveform-status" data-waveform-status>Choose a video file to analyze its audio.</p>
+        </section>
+
+        <button class="submit-button" type="submit" disabled="@(!Model.FfmpegAvailable)">
+            Process video
+        </button>
+
+        <div class="processing-panel" data-processing-panel hidden aria-live="polite">
+            <div class="processing-head">
+                <strong data-processing-label>Preparing upload...</strong>
+                <span data-processing-percent>0%</span>
+            </div>
+            <div class="processing-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-processing-bar>
+                <span class="processing-bar-fill" data-processing-fill></span>
+            </div>
+            <p class="processing-copy">Large videos can take a while. Keep this tab open until the result reloads.</p>
+        </div>
+    </form>
+</section>
+
+<section class="panel-card result-card-full">
+    <div class="panel-head">
+        <div>
+            <p class="panel-kicker">Result</p>
+            <h2>Latest run</h2>
+        </div>
+    </div>
+
+    @if (Model.Result is null)
+    {
+        <p class="empty-state">Run a file through the form to get a downloadable output here.</p>
+    }
+    else
+    {
+        <div class="result-summary @(Model.Result.Success ? "success" : "failure")">
+            <strong>@Model.Result.Message</strong>
+            <span>@Model.Result.OriginalFileName</span>
+        </div>
+
+        @if (Model.Result.Success)
+        {
+            <dl class="stats-grid">
+                <div>
+                    <dt>Source length</dt>
+                    <dd>@Model.FormatSeconds(Model.Result.SourceDurationSeconds)</dd>
+                </div>
+                <div>
+                    <dt>Output length</dt>
+                    <dd>@Model.FormatSeconds(Model.Result.OutputDurationSeconds)</dd>
+                </div>
+                <div>
+                    <dt>Removed</dt>
+                    <dd>@Model.FormatSeconds(Model.Result.RemovedDurationSeconds)</dd>
+                </div>
+                <div>
+                    <dt>Silence ranges</dt>
+                    <dd>@Model.Result.SilenceSegmentsDetected</dd>
+                </div>
+            </dl>
+
+            <div class="download-actions">
+                <button
+                    class="download-link save-as-button"
+                    type="button"
+                    data-save-file
+                    data-download-url="@Model.Result.OutputUrl"
+                    data-file-name="@Model.Result.OutputFileName">
+                    Save As...
+                </button>
+
+                <a class="download-link secondary-link" href="@Model.Result.OutputUrl" download="@Model.Result.OutputFileName">
+                    Download cleaned video
+                </a>
+            </div>
+
+            <p class="save-status" data-save-status hidden></p>
+
+            <p class="saved-path">
+                Saved to <code>@Model.Result.OutputPath</code>
+            </p>
+        }
+    }
+</section>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}
