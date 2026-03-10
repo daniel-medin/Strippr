@@ -7,17 +7,22 @@
     <script type="importmap"></script>
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
-    <link rel="stylesheet" href="~/Strippr.styles.css" asp-append-version="true" />
 </head>
 <body>
     <div class="page-shell">
         <header class="site-header">
-            <a class="site-mark" asp-area="" asp-page="/Index">
-                <img class="site-logo" src="~/img/logo.png" alt="Strippr logo" />
-                <span>Strippr</span>
-            </a>
+            <div class="site-brand">
+                <a class="site-mark" asp-area="" asp-page="/Index">
+                    <img class="site-logo" src="~/img/logo.png" alt="Strippr logo" />
+                    <span>Strippr</span>
+                </a>
+                <p class="site-caption">Local edit bay for silence cuts, pause compression, and fast local renders.</p>
+            </div>
             <div class="site-meta">
-                <p class="site-caption">ASP.NET Core 9 Razor Pages | local-only video cleanup</p>
+                <span class="site-badge">Local-only</span>
+                <a class="site-donate-button" href="#" role="button" aria-label="Donate to Strippr development">
+                    Donate
+                </a>
                 <p class="site-support">If Strippr saves you time, consider supporting development.</p>
             </div>
         </header>
@@ -33,6 +38,7 @@
 
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="~/js/timeline-editor.js" asp-append-version="true"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
 
     @await RenderSectionAsync("Scripts", required: false)

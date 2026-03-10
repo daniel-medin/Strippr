@@ -6,8 +6,8 @@ Strippr can bootstrap and use a bundled FFmpeg build for local media processing.
 
 Important:
 
-- Strippr application code is licensed separately under MIT
-- FFmpeg is not relicensed under MIT
+- Strippr application code is licensed separately under the custom Strippr license
+- FFmpeg is not relicensed under the Strippr license
 - FFmpeg remains under its own upstream license terms
 
 When distributing Strippr with a bundled FFmpeg build:

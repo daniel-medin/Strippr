@@ -1,21 +1,70 @@
-MIT License
+Strippr Personal Use License v1.0
 
 Copyright (c) 2026 Daniel Medin
+All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This license applies to the Strippr application source code and related project
+files in this repository, excluding third-party components that are distributed
+under their own license terms.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. Limited Permission
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Subject to the terms of this license, you are granted a limited, revocable,
+non-exclusive, non-transferable license to:
+
+- view this source code;
+- download and make copies only as necessary to install, run, and evaluate
+  Strippr; and
+- use Strippr for personal, non-commercial, or internal evaluation purposes.
+
+2. Restrictions
+
+You may not, without prior written permission from the copyright holder:
+
+- sell, sublicense, rent, lease, or redistribute Strippr;
+- use Strippr for commercial purposes;
+- offer Strippr to third parties as a hosted or managed service;
+- publish, distribute, or share copies of Strippr, in source or binary form;
+- modify, adapt, reverse engineer into another product, or create derivative
+  works for distribution;
+- copy substantial portions of Strippr into another product or project; or
+- remove, alter, or obscure copyright, attribution, or license notices.
+
+3. Ownership
+
+Daniel Medin retains all right, title, and interest in and to Strippr,
+including all intellectual property rights. This license grants limited
+permission to use Strippr; it does not transfer ownership.
+
+4. Donations
+
+Any donation or support is voluntary and does not grant any ownership,
+commercial, redistribution, or sublicensing rights.
+
+5. Third-Party Components
+
+Third-party software included with or used by Strippr, including FFmpeg, is
+licensed separately under its own terms. This license does not replace or alter
+those third-party license terms.
+
+6. Termination
+
+This license terminates automatically if you violate any term of it. Upon
+termination, you must stop using Strippr and delete all copies in your control.
+
+7. Disclaimer
+
+STRIPPR IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT.
+
+8. Limitation of Liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE COPYRIGHT HOLDER WILL NOT BE LIABLE
+FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM OR RELATED TO STRIPPR
+OR THE USE OF STRIPPR.
+
+9. Contact
+
+For commercial, redistribution, or other licensing requests, contact the
+copyright holder.

@@ -6,14 +6,19 @@
 
 <section class="hero-shell">
     <div class="hero-copy">
-        <p class="eyebrow">Local video cleanup</p>
-        <h1>Strippr</h1>
+        <p class="eyebrow">Editor workspace</p>
+        <h1>Build the cut, then render.</h1>
         <p class="hero-text">
-            Upload a clip, detect silence with FFmpeg, and download a tighter cut without leaving your machine.
+            Analyze the waveform, mark manual cuts, preview compressed pauses, and export the cleaned timeline without leaving your machine.
         </p>
+        <div class="hero-strip">
+            <span class="hero-chip">Waveform-first</span>
+            <span class="hero-chip">Manual in/out cuts</span>
+            <span class="hero-chip">Pause compression</span>
+        </div>
     </div>
     <div class="health-panel @(Model.FfmpegAvailable ? "online" : "offline")">
-        <span class="health-label">FFmpeg</span>
+        <span class="health-label">Render engine</span>
         <strong>@(Model.FfmpegAvailable ? "Ready" : "Missing")</strong>
         <p>@Model.FfmpegStatusMessage</p>
     </div>
@@ -22,10 +27,10 @@
 <section class="panel-card process-card">
     <div class="panel-head">
         <div>
-            <p class="panel-kicker">Process one file</p>
-            <h2>Upload and cut</h2>
+            <p class="panel-kicker">Timeline</p>
+            <h2>Edit one clip</h2>
         </div>
-        <span class="panel-tag">MVP</span>
+        <span class="panel-tag">Full-width workspace</span>
     </div>
 
     <form method="post" enctype="multipart/form-data" class="strippr-form" data-processing-form>
@@ -64,6 +69,59 @@
                     <span>3.0 s</span>
                 </div>
             </label>
+
+            <label class="field">
+                <span>Keep pause</span>
+                <div class="slider-head">
+                    <strong data-retained-silence-display>0.00 s</strong>
+                    <small>Leave this much silence behind after each detected silent region.</small>
+                </div>
+                <input asp-for="Input.RetainedSilenceSeconds" type="range" min="0" max="1" step="0.05" data-retained-silence-slider />
+                <div class="slider-scale">
+                    <span>0.00 s</span>
+                    <span>1.00 s</span>
+                </div>
+            </label>
+
+            <label class="field">
+                <span>Crossfade</span>
+                <div class="slider-head">
+                    <strong data-crossfade-display>80 ms</strong>
+                    <small>Crossfade audio between cuts to reduce clicks.</small>
+                </div>
+                <input asp-for="Input.CrossfadeMilliseconds" type="range" min="0" max="500" step="5" data-crossfade-slider />
+                <div class="slider-scale">
+                    <span>0 ms</span>
+                    <span>500 ms</span>
+                </div>
+            </label>
+
+            <label class="field">
+                <span>Video crossfade</span>
+                <div class="slider-head">
+                    <strong data-video-crossfade-display>0 fr</strong>
+                    <small>Blend video cuts over a short frame window.</small>
+                </div>
+                <input asp-for="Input.VideoCrossfadeFrames" type="range" min="0" max="48" step="1" data-video-crossfade-slider />
+                <div class="slider-scale">
+                    <span>0 fr</span>
+                    <span>48 fr</span>
+                </div>
+            </label>
+
+            <label class="field">
+                <span>Pause speed</span>
+                <div class="slider-head">
+                    <strong data-pause-speed-display>1.0x</strong>
+                    <small><code>1.0x</code> uses the Keep pause value. Above that, pauses are compressed even further.</small>
+                </div>
+                <input asp-for="Input.PauseSpeedMultiplier" type="range" min="1" max="10" step="0.1" data-pause-speed-slider />
+                <div class="slider-scale">
+                    <span>1.0x</span>
+                    <span>Cut -> compress</span>
+                    <span>10.0x</span>
+                </div>
+            </label>
         </div>
 
         <input asp-for="Input.ManualCutRangesJson" type="hidden" data-manual-cut-ranges />
@@ -71,8 +129,8 @@
         <section class="waveform-panel" data-waveform-panel hidden>
             <div class="waveform-head">
                 <div>
-                    <p class="panel-kicker">Audio analysis</p>
-                    <h3>Waveform preview</h3>
+                    <p class="panel-kicker">Timeline monitor</p>
+                    <h3>Waveform editor</h3>
                 </div>
                 <span class="waveform-threshold" data-threshold-readout>-30dB</span>
             </div>
@@ -94,11 +152,13 @@
             </div>
             <div class="waveform-actions">
                 <div class="waveform-action-buttons">
-                    <button class="timeline-button" type="button" data-add-marker="in">Add In</button>
-                    <button class="timeline-button" type="button" data-add-marker="out">Add Out</button>
+                    <button class="timeline-button" type="button" data-waveform-play disabled>Play audio</button>
+                    <button class="timeline-button" type="button" data-waveform-play-result disabled>Play result</button>
+                    <button class="timeline-button" type="button" data-add-marker="in">Add in (A)</button>
+                    <button class="timeline-button" type="button" data-add-marker="out">Add out (S)</button>
                 </div>
                 <p class="waveform-help">
-                    Click the waveform to place the playhead, then add In and Out markers. Drag markers to adjust them and remove any marker from the list below.
+                    Click the waveform to place the playhead, then play audio, preview the result, or add In and Out markers. Drag markers to adjust them and remove any marker from the list below.
                 </p>
             </div>
             <div class="waveform-viewport" data-waveform-viewport>
@@ -137,8 +197,8 @@
 <section class="panel-card result-card-full">
     <div class="panel-head">
         <div>
-            <p class="panel-kicker">Result</p>
-            <h2>Latest run</h2>
+            <p class="panel-kicker">Render output</p>
+            <h2>Latest export</h2>
         </div>
     </div>
 
@@ -169,7 +229,7 @@
                     <dd>@Model.FormatSeconds(Model.Result.RemovedDurationSeconds)</dd>
                 </div>
                 <div>
-                    <dt>Cut ranges</dt>
+                    <dt>Edited ranges</dt>
                     <dd>@Model.Result.RemovedSegmentsCount</dd>
                 </div>
             </dl>

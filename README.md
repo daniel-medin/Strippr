@@ -67,16 +67,22 @@ The extracted FFmpeg runtime is intentionally ignored by git.
 
 ## Licensing
 
-Strippr source code is licensed under MIT.
+Strippr is source-available, not open source.
 
-Bundled FFmpeg is distributed under its own license terms and is not relicensed under MIT. See FFmpeg licensing and the bundled upstream attribution files when distributing it.
+The Strippr application code is licensed under the custom proprietary personal-use terms in [LICENSE](LICENSE).
 
-Practical rules for this repo:
+What that means in practice:
 
-- keep `LICENSE` as the license for Strippr application code
-- do not remove or replace FFmpeg's own license terms
-- include FFmpeg license and attribution materials when redistributing a bundled FFmpeg build
-- treat FFmpeg as a separate third-party dependency with its own terms
+- personal, non-commercial, and internal evaluation use is allowed
+- redistribution, resale, and commercial use are not allowed without written permission
+- ownership of Strippr remains with Daniel Medin
+
+Bundled FFmpeg is distributed under its own separate license terms and is not covered by the Strippr license.
+
+Important GitHub note:
+
+- if a repository is public on GitHub, other users can still view and fork it under GitHub's platform rules
+- if you want stronger practical control over access to the source, keep the repository private
 
 ## Output Location
 
@@ -121,6 +127,6 @@ tools/ffmpeg FFmpeg bootstrap location
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Custom proprietary personal-use license. See [LICENSE](LICENSE).
 
 Third-party licensing notes are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

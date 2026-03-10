@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.ComponentModel;
 using Microsoft.Extensions.Options;
@@ -79,19 +80,23 @@ public sealed partial class FfmpegService
         }
 
         var durationSeconds = ParseDuration(result.StandardError);
+        var frameRate = await ProbeFrameRateAsync(inputPath, cancellationToken);
         var silenceIntervals = ParseSilenceIntervals(result.StandardError, durationSeconds);
 
-        return new MediaAnalysis(durationSeconds, silenceIntervals);
+        return new MediaAnalysis(durationSeconds, frameRate, silenceIntervals);
     }
 
-    public async Task RenderWithoutSilenceAsync(
+    public async Task<double> RenderWithoutSilenceAsync(
         string inputPath,
         string outputPath,
-        IReadOnlyList<KeepSegment> keepSegments,
+        IReadOnlyList<RenderSegment> renderSegments,
+        double crossfadeMilliseconds,
+        int videoCrossfadeFrames,
+        double frameRate,
         CancellationToken cancellationToken)
     {
         var executablePath = ResolveExecutablePath();
-        var filter = BuildConcatFilter(keepSegments);
+        var renderPlan = BuildRenderPlan(renderSegments, crossfadeMilliseconds, videoCrossfadeFrames, frameRate);
 
         var result = await RunProcessAsync(
             executablePath,
@@ -100,7 +105,7 @@ public sealed partial class FfmpegService
                 "-y",
                 "-hide_banner",
                 "-i", inputPath,
-                "-filter_complex", filter,
+                "-filter_complex", renderPlan.Filter,
                 "-map", "[v]",
                 "-map", "[a]",
                 "-movflags", "+faststart",
@@ -112,6 +117,8 @@ public sealed partial class FfmpegService
         {
             throw new InvalidOperationException($"FFmpeg render failed: {result.StandardError}");
         }
+
+        return renderPlan.AppliedCrossfadeSeconds;
     }
 
     private async Task<ProcessResult> RunProcessAsync(
@@ -166,6 +173,22 @@ public sealed partial class FfmpegService
             ?? FindWingetInstallPath()
             ?? _options.FfmpegPath;
         return _resolvedExecutablePath;
+    }
+
+    private string ResolveProbePath()
+    {
+        var executablePath = ResolveExecutablePath();
+        var executableDirectory = Path.GetDirectoryName(executablePath);
+        if (!string.IsNullOrWhiteSpace(executableDirectory))
+        {
+            var siblingProbePath = Path.Combine(executableDirectory, "ffprobe.exe");
+            if (File.Exists(siblingProbePath))
+            {
+                return siblingProbePath;
+            }
+        }
+
+        return "ffprobe";
     }
 
     private static string? FindWingetInstallPath()
@@ -249,57 +272,284 @@ public sealed partial class FfmpegService
         return intervals;
     }
 
-    private static string BuildConcatFilter(IReadOnlyList<KeepSegment> keepSegments)
+    private async Task<double> ProbeFrameRateAsync(string inputPath, CancellationToken cancellationToken)
     {
-        if (keepSegments.Count == 0)
+        try
         {
-            throw new InvalidOperationException("At least one keep segment is required for rendering.");
+            var result = await RunProcessAsync(
+                ResolveProbePath(),
+                arguments:
+                [
+                    "-v", "error",
+                    "-select_streams", "v:0",
+                    "-show_entries", "stream=avg_frame_rate,r_frame_rate",
+                    "-of", "json",
+                    inputPath
+                ],
+                cancellationToken: cancellationToken);
+
+            if (result.ExitCode != 0 || string.IsNullOrWhiteSpace(result.StandardOutput))
+            {
+                return 30;
+            }
+
+            using var document = JsonDocument.Parse(result.StandardOutput);
+            var streamElement = document.RootElement
+                .GetProperty("streams")
+                .EnumerateArray()
+                .FirstOrDefault();
+
+            var avgFrameRate = streamElement.TryGetProperty("avg_frame_rate", out var avgFrameRateElement)
+                ? avgFrameRateElement.GetString()
+                : null;
+            var rawFrameRate = streamElement.TryGetProperty("r_frame_rate", out var rawFrameRateElement)
+                ? rawFrameRateElement.GetString()
+                : null;
+
+            var parsedFrameRate = ParseFrameRate(avgFrameRate) ?? ParseFrameRate(rawFrameRate);
+            return parsedFrameRate is > 0 ? parsedFrameRate.Value : 30;
+        }
+        catch
+        {
+            return 30;
+        }
+    }
+
+    private static RenderPlan BuildRenderPlan(
+        IReadOnlyList<RenderSegment> renderSegments,
+        double crossfadeMilliseconds,
+        int videoCrossfadeFrames,
+        double frameRate)
+    {
+        if (renderSegments.Count == 0)
+        {
+            throw new InvalidOperationException("At least one render segment is required for rendering.");
         }
 
-        if (keepSegments.Count == 1)
+        var requestedCrossfadeSeconds = Math.Max(0, crossfadeMilliseconds) / 1000d;
+        var requestedVideoCrossfadeSeconds =
+            videoCrossfadeFrames > 0 && frameRate > 0
+                ? videoCrossfadeFrames / frameRate
+                : 0;
+        var appliedCrossfadeSeconds = DetermineAppliedCrossfadeSeconds(
+            renderSegments,
+            Math.Max(requestedCrossfadeSeconds, requestedVideoCrossfadeSeconds));
+        var hardCutTransitionCount = renderSegments.Count(segment => segment.StartsAfterHardCut);
+
+        if (renderSegments.Count == 1)
         {
-            var segment = keepSegments[0];
-            return string.Create(
-                CultureInfo.InvariantCulture,
-                $"[0:v]trim=start={segment.StartSeconds:0.###}:end={segment.EndSeconds:0.###},setpts=PTS-STARTPTS[v];" +
-                $"[0:a]atrim=start={segment.StartSeconds:0.###}:end={segment.EndSeconds:0.###},asetpts=PTS-STARTPTS[a]");
+            return new RenderPlan(
+                BuildSegmentFilters(renderSegments[0], 0) + "[v0]format=yuv420p[v];[a0]anull[a]",
+                0);
         }
 
         var builder = new StringBuilder();
-
-        for (var index = 0; index < keepSegments.Count; index++)
+        for (var index = 0; index < renderSegments.Count; index++)
         {
-            var segment = keepSegments[index];
-            builder.Append("[0:v]trim=start=");
-            builder.Append(segment.StartSeconds.ToString("0.###", CultureInfo.InvariantCulture));
-            builder.Append(":end=");
-            builder.Append(segment.EndSeconds.ToString("0.###", CultureInfo.InvariantCulture));
-            builder.Append(",setpts=PTS-STARTPTS[v");
-            builder.Append(index);
-            builder.Append("];");
-
-            builder.Append("[0:a]atrim=start=");
-            builder.Append(segment.StartSeconds.ToString("0.###", CultureInfo.InvariantCulture));
-            builder.Append(":end=");
-            builder.Append(segment.EndSeconds.ToString("0.###", CultureInfo.InvariantCulture));
-            builder.Append(",asetpts=PTS-STARTPTS[a");
-            builder.Append(index);
-            builder.Append("];");
+            builder.Append(BuildSegmentFilters(renderSegments[index], index));
         }
 
-        for (var index = 0; index < keepSegments.Count; index++)
+        var currentVideoLabel = "v0";
+        var currentAudioLabel = "a0";
+        var currentOutputDurationSeconds = renderSegments[0].OutputDurationSeconds;
+
+        for (var index = 1; index < renderSegments.Count; index++)
         {
-            builder.Append("[v");
-            builder.Append(index);
-            builder.Append("][a");
-            builder.Append(index);
-            builder.Append(']');
+            var segment = renderSegments[index];
+            var nextVideoLabel = $"v{index}";
+            var nextAudioLabel = $"a{index}";
+            var mergedVideoLabel = $"vm{index}";
+            var mergedAudioLabel = $"am{index}";
+            var useCrossfade = segment.StartsAfterHardCut && appliedCrossfadeSeconds > 0;
+
+            if (useCrossfade)
+            {
+                builder.Append('[');
+                builder.Append(currentVideoLabel);
+                builder.Append("][");
+                builder.Append(nextVideoLabel);
+                builder.Append("]xfade=transition=fade:duration=");
+                builder.Append(appliedCrossfadeSeconds.ToString("0.###", CultureInfo.InvariantCulture));
+                builder.Append(":offset=");
+                builder.Append(Math.Max(0, currentOutputDurationSeconds - appliedCrossfadeSeconds).ToString("0.###", CultureInfo.InvariantCulture));
+                builder.Append('[');
+                builder.Append(mergedVideoLabel);
+                builder.Append("];");
+
+                builder.Append('[');
+                builder.Append(currentAudioLabel);
+                builder.Append("][");
+                builder.Append(nextAudioLabel);
+                builder.Append("]acrossfade=d=");
+                builder.Append(appliedCrossfadeSeconds.ToString("0.###", CultureInfo.InvariantCulture));
+                builder.Append(":c1=tri:c2=tri[");
+                builder.Append(mergedAudioLabel);
+                builder.Append("];");
+
+                currentOutputDurationSeconds += segment.OutputDurationSeconds - appliedCrossfadeSeconds;
+            }
+            else
+            {
+                builder.Append('[');
+                builder.Append(currentVideoLabel);
+                builder.Append("][");
+                builder.Append(nextVideoLabel);
+                builder.Append("]concat=n=2:v=1:a=0[");
+                builder.Append(mergedVideoLabel);
+                builder.Append("];");
+
+                builder.Append('[');
+                builder.Append(currentAudioLabel);
+                builder.Append("][");
+                builder.Append(nextAudioLabel);
+                builder.Append("]concat=n=2:v=0:a=1[");
+                builder.Append(mergedAudioLabel);
+                builder.Append("];");
+
+                currentOutputDurationSeconds += segment.OutputDurationSeconds;
+            }
+
+            currentVideoLabel = mergedVideoLabel;
+            currentAudioLabel = mergedAudioLabel;
         }
 
-        builder.Append("concat=n=");
-        builder.Append(keepSegments.Count);
-        builder.Append(":v=1:a=1[v][a]");
+        builder.Append('[');
+        builder.Append(currentVideoLabel);
+        builder.Append("]format=yuv420p[v];[");
+        builder.Append(currentAudioLabel);
+        builder.Append("]anull[a]");
+
+        return new RenderPlan(
+            builder.ToString().TrimEnd(';'),
+            appliedCrossfadeSeconds * hardCutTransitionCount);
+    }
+
+    private static string BuildSegmentFilters(RenderSegment segment, int index)
+    {
+        var builder = new StringBuilder();
+        builder.Append("[0:v]trim=start=");
+        builder.Append(segment.StartSeconds.ToString("0.###", CultureInfo.InvariantCulture));
+        builder.Append(":end=");
+        builder.Append(segment.EndSeconds.ToString("0.###", CultureInfo.InvariantCulture));
+        builder.Append(",setpts=");
+        if (segment.PlaybackSpeed > 1)
+        {
+            builder.Append("(PTS-STARTPTS)/");
+            builder.Append(segment.PlaybackSpeed.ToString("0.###", CultureInfo.InvariantCulture));
+        }
+        else
+        {
+            builder.Append("PTS-STARTPTS");
+        }
+
+        builder.Append("[v");
+        builder.Append(index);
+        builder.Append("];");
+
+        builder.Append("[0:a]atrim=start=");
+        builder.Append(segment.StartSeconds.ToString("0.###", CultureInfo.InvariantCulture));
+        builder.Append(":end=");
+        builder.Append(segment.EndSeconds.ToString("0.###", CultureInfo.InvariantCulture));
+        builder.Append(",asetpts=PTS-STARTPTS");
+
+        if (segment.PlaybackSpeed > 1)
+        {
+            foreach (var atempoStep in BuildAtempoChain(segment.PlaybackSpeed))
+            {
+                builder.Append(",atempo=");
+                builder.Append(atempoStep.ToString("0.###", CultureInfo.InvariantCulture));
+            }
+        }
+
+        builder.Append("[a");
+        builder.Append(index);
+        builder.Append("];");
+
         return builder.ToString();
+    }
+
+    private static double DetermineAppliedCrossfadeSeconds(
+        IReadOnlyList<RenderSegment> renderSegments,
+        double requestedCrossfadeSeconds)
+    {
+        if (requestedCrossfadeSeconds <= 0 || renderSegments.Count < 2)
+        {
+            return 0;
+        }
+
+        var maxAllowedCrossfadeSeconds = double.MaxValue;
+        var foundHardCutTransition = false;
+
+        for (var index = 1; index < renderSegments.Count; index++)
+        {
+            if (!renderSegments[index].StartsAfterHardCut)
+            {
+                continue;
+            }
+
+            foundHardCutTransition = true;
+            var current = renderSegments[index - 1].OutputDurationSeconds;
+            var next = renderSegments[index].OutputDurationSeconds;
+            var allowedForPair = Math.Max(0, Math.Min(current, next) - 0.01);
+            maxAllowedCrossfadeSeconds = Math.Min(maxAllowedCrossfadeSeconds, allowedForPair);
+        }
+
+        if (!foundHardCutTransition || maxAllowedCrossfadeSeconds <= 0)
+        {
+            return 0;
+        }
+
+        return Math.Min(requestedCrossfadeSeconds, maxAllowedCrossfadeSeconds);
+    }
+
+    private static IReadOnlyList<double> BuildAtempoChain(double playbackSpeed)
+    {
+        if (playbackSpeed <= 1)
+        {
+            return [1];
+        }
+
+        var steps = new List<double>();
+        var remainingSpeed = playbackSpeed;
+
+        while (remainingSpeed > 2)
+        {
+            steps.Add(2);
+            remainingSpeed /= 2;
+        }
+
+        if (remainingSpeed > 1.001)
+        {
+            steps.Add(remainingSpeed);
+        }
+
+        return steps.Count > 0 ? steps : [1];
+    }
+
+    private static double? ParseFrameRate(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (!value.Contains('/'))
+        {
+            return double.TryParse(value, CultureInfo.InvariantCulture, out var directFrameRate)
+                ? directFrameRate
+                : null;
+        }
+
+        var parts = value.Split('/', 2);
+        if (parts.Length != 2 ||
+            !double.TryParse(parts[0], CultureInfo.InvariantCulture, out var numerator) ||
+            !double.TryParse(parts[1], CultureInfo.InvariantCulture, out var denominator) ||
+            denominator == 0)
+        {
+            return null;
+        }
+
+        return numerator / denominator;
     }
 
     private static double ParseDouble(string value)
@@ -317,4 +567,6 @@ public sealed partial class FfmpegService
     private static partial Regex SilenceEndRegex();
 
     private sealed record ProcessResult(int ExitCode, string StandardOutput, string StandardError);
+
+    private sealed record RenderPlan(string Filter, double AppliedCrossfadeSeconds);
 }

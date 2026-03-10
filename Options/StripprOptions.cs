@@ -25,5 +25,13 @@ public sealed class StripprOptions
 
     public double DefaultMinimumSilenceSeconds { get; set; } = 0.5;
 
+    public double DefaultCrossfadeMilliseconds { get; set; } = 80;
+
+    public int DefaultVideoCrossfadeFrames { get; set; } = 0;
+
+    public double DefaultPauseSpeedMultiplier { get; set; } = 1;
+
+    public double DefaultRetainedSilenceSeconds { get; set; } = 0;
+
     public double MinimumKeepSegmentSeconds { get; set; } = 0.15;
 }

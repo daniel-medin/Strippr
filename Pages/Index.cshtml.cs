@@ -66,6 +66,10 @@ public sealed class IndexModel : PageModel
             Input.Video!,
             Input.NoiseThreshold,
             Input.MinimumSilenceSeconds,
+            Input.RetainedSilenceSeconds,
+            Input.CrossfadeMilliseconds,
+            Input.VideoCrossfadeFrames,
+            Input.PauseSpeedMultiplier,
             manualCutRanges!,
             cancellationToken);
 
@@ -88,6 +92,10 @@ public sealed class IndexModel : PageModel
         {
             NoiseThreshold = _options.DefaultNoiseThreshold,
             MinimumSilenceSeconds = _options.DefaultMinimumSilenceSeconds,
+            RetainedSilenceSeconds = _options.DefaultRetainedSilenceSeconds,
+            CrossfadeMilliseconds = _options.DefaultCrossfadeMilliseconds,
+            VideoCrossfadeFrames = _options.DefaultVideoCrossfadeFrames,
+            PauseSpeedMultiplier = _options.DefaultPauseSpeedMultiplier,
             ManualCutRangesJson = "[]"
         };
     }
@@ -110,6 +118,18 @@ public sealed class IndexModel : PageModel
 
         [Range(0.1, 10)]
         public double MinimumSilenceSeconds { get; set; }
+
+        [Range(0, 1)]
+        public double RetainedSilenceSeconds { get; set; }
+
+        [Range(0, 500)]
+        public double CrossfadeMilliseconds { get; set; }
+
+        [Range(0, 48)]
+        public int VideoCrossfadeFrames { get; set; }
+
+        [Range(1, 10)]
+        public double PauseSpeedMultiplier { get; set; }
 
         public string ManualCutRangesJson { get; set; } = "[]";
     }

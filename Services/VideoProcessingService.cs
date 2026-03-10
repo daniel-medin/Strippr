@@ -30,6 +30,10 @@ public sealed class VideoProcessingService
         IFormFile video,
         string noiseThreshold,
         double minimumSilenceSeconds,
+        double retainedSilenceSeconds,
+        double crossfadeMilliseconds,
+        int videoCrossfadeFrames,
+        double pauseSpeedMultiplier,
         IReadOnlyList<SilenceInterval> manualCutRanges,
         CancellationToken cancellationToken)
     {
@@ -75,16 +79,36 @@ public sealed class VideoProcessingService
                 minimumSilenceSeconds,
                 cancellationToken);
 
-            var removedIntervals = analysis.SilenceIntervals
-                .Concat(manualCutRanges)
-                .ToList();
+            var normalizedManualCutRanges = _cutPlanBuilder.Normalize(analysis.DurationSeconds, manualCutRanges);
+            var normalizedSilenceRanges = _cutPlanBuilder.Normalize(analysis.DurationSeconds, analysis.SilenceIntervals);
+            var useSilenceProcessing = pauseSpeedMultiplier > 1 || retainedSilenceSeconds > 0;
+            var cutPlan = useSilenceProcessing
+                ? _cutPlanBuilder.Build(
+                    analysis.DurationSeconds,
+                    normalizedManualCutRanges,
+                    _options.MinimumKeepSegmentSeconds)
+                : _cutPlanBuilder.Build(
+                    analysis.DurationSeconds,
+                    analysis.SilenceIntervals.Concat(normalizedManualCutRanges).ToList(),
+                    _options.MinimumKeepSegmentSeconds);
+            var renderSegments = useSilenceProcessing
+                ? _cutPlanBuilder.BuildRenderSegments(
+                    analysis.DurationSeconds,
+                    normalizedSilenceRanges,
+                    normalizedManualCutRanges,
+                    _options.MinimumKeepSegmentSeconds,
+                    pauseSpeedMultiplier,
+                    retainedSilenceSeconds)
+                : cutPlan.KeepSegments
+                    .Select((segment, index) => new RenderSegment(
+                        segment.StartSeconds,
+                        segment.EndSeconds,
+                        PlaybackSpeed: 1,
+                        StartsAfterHardCut: index > 0))
+                    .ToList();
+            var processedSilenceSegmentCount = renderSegments.Count(segment => segment.PlaybackSpeed > 1);
 
-            var cutPlan = _cutPlanBuilder.Build(
-                analysis.DurationSeconds,
-                removedIntervals,
-                _options.MinimumKeepSegmentSeconds);
-
-            if (cutPlan.RemovedSegments.Count == 0)
+            if (cutPlan.RemovedSegments.Count == 0 && !useSilenceProcessing)
             {
                 var passthroughOutputPath = _workspaceService.CreateOutputPath(video.FileName, useMp4Extension: false);
                 File.Copy(uploadPath, passthroughOutputPath, overwrite: true);
@@ -107,21 +131,46 @@ public sealed class VideoProcessingService
                     CutsApplied: false);
             }
 
-            if (cutPlan.KeepSegments.Count == 0)
+            if (useSilenceProcessing &&
+                normalizedManualCutRanges.Count == 0 &&
+                processedSilenceSegmentCount == 0)
             {
-                return BuildFailure(video.FileName, "The combined silence and manual cut ranges removed the entire clip. Reduce the cuts and try again.");
+                var passthroughOutputPath = _workspaceService.CreateOutputPath(video.FileName, useMp4Extension: false);
+                File.Copy(uploadPath, passthroughOutputPath, overwrite: true);
+
+                return new VideoProcessingResult(
+                    Success: true,
+                    Message: "No silence matched the current thresholds, so the original file was copied as-is.",
+                    OriginalFileName: video.FileName,
+                    OutputFileName: Path.GetFileName(passthroughOutputPath),
+                    OutputPath: passthroughOutputPath,
+                    OutputUrl: _workspaceService.GetOutputUrl(passthroughOutputPath),
+                    SourceDurationSeconds: analysis.DurationSeconds,
+                    OutputDurationSeconds: analysis.DurationSeconds,
+                    RemovedDurationSeconds: 0,
+                    RemovedSegmentsCount: 0,
+                    CutsApplied: false);
+            }
+
+            if (renderSegments.Count == 0)
+            {
+                return BuildFailure(video.FileName, "The current cut and pause-speed settings leave no output to render. Reduce the cuts and try again.");
             }
 
             var outputPath = _workspaceService.CreateOutputPath(video.FileName, useMp4Extension: true);
-            await _ffmpegService.RenderWithoutSilenceAsync(
+            var appliedCrossfadeSeconds = await _ffmpegService.RenderWithoutSilenceAsync(
                 uploadPath,
                 outputPath,
-                cutPlan.KeepSegments,
+                renderSegments,
+                crossfadeMilliseconds,
+                videoCrossfadeFrames,
+                analysis.FrameRate,
                 cancellationToken);
 
-            var successMessage = manualCutRanges.Count > 0
-                ? "Video processed successfully with manual cut markers."
-                : "Video processed successfully.";
+            var successMessage = BuildSuccessMessage(manualCutRanges.Count, pauseSpeedMultiplier, retainedSilenceSeconds);
+
+            var outputDurationSeconds = Math.Max(0, renderSegments.Sum(segment => segment.OutputDurationSeconds) - appliedCrossfadeSeconds);
+            var removedDurationSeconds = Math.Max(0, cutPlan.SourceDurationSeconds - outputDurationSeconds);
 
             return new VideoProcessingResult(
                 Success: true,
@@ -131,9 +180,11 @@ public sealed class VideoProcessingService
                 OutputPath: outputPath,
                 OutputUrl: _workspaceService.GetOutputUrl(outputPath),
                 SourceDurationSeconds: cutPlan.SourceDurationSeconds,
-                OutputDurationSeconds: cutPlan.OutputDurationSeconds,
-                RemovedDurationSeconds: cutPlan.RemovedDurationSeconds,
-                RemovedSegmentsCount: cutPlan.RemovedSegments.Count,
+                OutputDurationSeconds: outputDurationSeconds,
+                RemovedDurationSeconds: removedDurationSeconds,
+                RemovedSegmentsCount: useSilenceProcessing
+                    ? normalizedManualCutRanges.Count + processedSilenceSegmentCount
+                    : cutPlan.RemovedSegments.Count,
                 CutsApplied: true);
         }
         catch (Exception exception)
@@ -157,5 +208,36 @@ public sealed class VideoProcessingService
             RemovedDurationSeconds: 0,
             RemovedSegmentsCount: 0,
             CutsApplied: false);
+    }
+
+    private static string BuildSuccessMessage(
+        int manualCutCount,
+        double pauseSpeedMultiplier,
+        double retainedSilenceSeconds)
+    {
+        if (pauseSpeedMultiplier > 1 && retainedSilenceSeconds > 0)
+        {
+            return manualCutCount > 0
+                ? $"Video processed successfully with {pauseSpeedMultiplier:0.0}x pause compression, {retainedSilenceSeconds:0.##} s kept pauses, and manual cut markers."
+                : $"Video processed successfully with {pauseSpeedMultiplier:0.0}x pause compression and {retainedSilenceSeconds:0.##} s kept pauses.";
+        }
+
+        if (pauseSpeedMultiplier > 1)
+        {
+            return manualCutCount > 0
+                ? $"Video processed successfully with {pauseSpeedMultiplier:0.0}x pause compression and manual cut markers."
+                : $"Video processed successfully with {pauseSpeedMultiplier:0.0}x pause compression.";
+        }
+
+        if (retainedSilenceSeconds > 0)
+        {
+            return manualCutCount > 0
+                ? $"Video processed successfully with {retainedSilenceSeconds:0.##} s kept pauses and manual cut markers."
+                : $"Video processed successfully with {retainedSilenceSeconds:0.##} s kept pauses.";
+        }
+
+        return manualCutCount > 0
+            ? "Video processed successfully with manual cut markers."
+            : "Video processed successfully.";
     }
 }
