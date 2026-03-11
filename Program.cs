@@ -128,6 +128,7 @@ app.MapPost("/api/ai/silence-analysis", async Task<IResult> (
     var video = form.Files.GetFile("video");
     var apiKey = form["apiKey"].ToString();
     var model = form["model"].ToString();
+    var language = form["language"].ToString();
     var minimumGapValue = form["minimumGapSeconds"].ToString();
 
     if (video is null)
@@ -151,6 +152,7 @@ app.MapPost("/api/ai/silence-analysis", async Task<IResult> (
             video,
             apiKey,
             model,
+            language,
             minimumGapSeconds,
             cancellationToken);
 
@@ -164,6 +166,78 @@ app.MapPost("/api/ai/silence-analysis", async Task<IResult> (
             {
                 startSeconds = range.StartSeconds,
                 endSeconds = range.EndSeconds
+            })
+        });
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(new
+        {
+            success = false,
+            message = exception.Message
+        });
+    }
+});
+app.MapPost("/api/ai/content-analysis", async Task<IResult> (
+    HttpRequest request,
+    OpenAiSilenceAnalysisService openAiSilenceAnalysisService,
+    CancellationToken cancellationToken) =>
+{
+    if (!request.HasFormContentType)
+    {
+        return Results.BadRequest(new
+        {
+            success = false,
+            message = "A2 analysis expects multipart form data."
+        });
+    }
+
+    var form = await request.ReadFormAsync(cancellationToken);
+    var video = form.Files.GetFile("video");
+    var apiKey = form["apiKey"].ToString();
+    var analysisModel = form["analysisModel"].ToString();
+    var language = form["language"].ToString();
+
+    if (video is null)
+    {
+        return Results.BadRequest(new
+        {
+            success = false,
+            message = "Choose a video file before running A2 analysis."
+        });
+    }
+
+    try
+    {
+        var result = await openAiSilenceAnalysisService.AnalyzeContentAsync(
+            video,
+            apiKey,
+            analysisModel,
+            language,
+            cancellationToken);
+
+        return Results.Ok(new
+        {
+            success = true,
+            transcriptionModel = result.TranscriptionModel,
+            analysisModel = result.AnalysisModel,
+            durationSeconds = result.DurationSeconds,
+            message = result.Message,
+            summary = result.Summary,
+            transcriptText = result.TranscriptText,
+            transcriptSegments = result.TranscriptSegments.Select(segment => new
+            {
+                startSeconds = segment.StartSeconds,
+                endSeconds = segment.EndSeconds,
+                text = segment.Text
+            }),
+            issues = result.Issues.Select(issue => new
+            {
+                startSeconds = issue.StartSeconds,
+                endSeconds = issue.EndSeconds,
+                label = issue.Label,
+                reason = issue.Reason,
+                excerpt = issue.Excerpt
             })
         });
     }

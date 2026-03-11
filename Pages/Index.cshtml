@@ -197,6 +197,7 @@
 
         <input asp-for="Input.ManualCutRangesJson" type="hidden" data-manual-cut-ranges />
         <input asp-for="Input.AiCutRangesJson" type="hidden" data-ai-cut-ranges />
+        <input asp-for="Input.AiContentCutRangesJson" type="hidden" data-ai-content-cut-ranges />
 
         <section class="waveform-panel" data-waveform-panel hidden>
             <div class="waveform-head">
@@ -267,6 +268,14 @@
                             <option value="whisper-1">whisper-1</option>
                         </select>
                     </label>
+                    <label class="ai-analysis-field">
+                        <span>Spoken language</span>
+                        <select data-ai-language>
+                            <option value="en">English</option>
+                            <option value="">Auto detect</option>
+                            <option value="sv">Swedish</option>
+                        </select>
+                    </label>
                     <div class="ai-analysis-actions">
                         <button class="secondary-button" type="button" data-ai-analyze>
                             <span class="ai-analysis-spinner" hidden aria-hidden="true"></span>
@@ -278,14 +287,60 @@
                 <p class="ai-analysis-help">
                     @if (Model.HasConfiguredOpenAiApiKey)
                     {
-                        <text>Uses OpenAI transcript timing gaps, then trims them against the local waveform so non-silent audio does not get marked as silence. A local key is configured on this machine, so you can leave the field blank or override it for one run. This overlay currently uses timestamp-capable transcription models only. AI ranges do not change manual cuts.</text>
+                        <text>Uses OpenAI transcript timing gaps, then trims them against the local waveform so non-silent audio does not get marked as silence. A local key is configured on this machine, so you can leave the field blank or override it for one run. Set Spoken language if auto-detect drifts. This overlay currently uses timestamp-capable transcription models only. AI ranges do not change manual cuts.</text>
                     }
                     else
                     {
-                        <text>Uses OpenAI transcript timing gaps, then trims them against the local waveform so non-silent audio does not get marked as silence. The API key stays in this local app flow, Strippr does not save it, and this overlay currently uses timestamp-capable transcription models only. AI ranges do not change manual cuts.</text>
+                        <text>Uses OpenAI transcript timing gaps, then trims them against the local waveform so non-silent audio does not get marked as silence. The API key stays in this local app flow, Strippr does not save it, and this overlay currently uses timestamp-capable transcription models only. Set Spoken language if auto-detect drifts. AI ranges do not change manual cuts.</text>
                     }
                 </p>
                 <p class="ai-analysis-status" data-ai-status hidden></p>
+            </section>
+            <section
+                class="ai-content-panel"
+                data-ai-content-default-key-available="@Model.HasConfiguredOpenAiApiKey.ToString().ToLowerInvariant()">
+                <div class="ai-content-head">
+                    <div>
+                        <p class="panel-kicker">A2</p>
+                        <strong>Content-aware retake detector</strong>
+                    </div>
+                    <label class="field-toggle ai-content-toggle">
+                        <input class="field-toggle__input" type="checkbox" data-ai-content-enabled />
+                        <span class="field-toggle__label">Off</span>
+                    </label>
+                </div>
+                <div class="ai-content-grid">
+                    <label class="ai-content-field">
+                        <span>Analysis model</span>
+                        <select data-ai-content-model>
+                            <option value="gpt-5.2">gpt-5.2</option>
+                            <option value="gpt-5">gpt-5</option>
+                            <option value="gpt-5-mini">gpt-5-mini</option>
+                            <option value="gpt-4o-mini">gpt-4o-mini</option>
+                        </select>
+                    </label>
+                    <div class="ai-content-actions">
+                        <button class="secondary-button" type="button" data-ai-content-analyze>
+                            <span class="ai-analysis-spinner" hidden aria-hidden="true" data-ai-content-spinner></span>
+                            <span data-ai-content-analyze-label>Analyze content</span>
+                        </button>
+                        <button class="secondary-button" type="button" data-ai-content-clear hidden>Clear A2</button>
+                    </div>
+                </div>
+                <p class="ai-content-help">
+                    Uses Whisper for timestamped transcript recovery, then runs a second reasoning pass to look for false starts, self-corrections, repeated phrases, filler-heavy stumbles, and likely spoken mistakes. A2 reuses the OpenAI key and spoken-language setting above and shows both suggested cut ranges and transcript text.
+                </p>
+                <p class="ai-content-status" data-ai-content-status hidden></p>
+                <div class="ai-content-results" data-ai-content-results hidden>
+                    <div class="ai-content-issues" data-ai-content-issues></div>
+                    <div class="ai-content-transcript">
+                        <div class="ai-content-transcript-head">
+                            <span>Transcript</span>
+                            <span class="ai-content-transcript-tag" data-ai-content-transcript-model hidden></span>
+                        </div>
+                        <div class="ai-content-transcript-body" data-ai-content-transcript-body></div>
+                    </div>
+                </div>
             </section>
             <div class="waveform-actions">
                 <div class="waveform-action-buttons">
@@ -302,6 +357,7 @@
                 <div class="waveform-stage" data-waveform-stage>
                     <canvas class="waveform-canvas" data-waveform-canvas></canvas>
                     <div class="waveform-ai-overlay" data-ai-waveform-overlay></div>
+                    <div class="waveform-ai-content-overlay" data-ai-content-waveform-overlay></div>
                     <div class="waveform-overlay" data-waveform-overlay></div>
                 </div>
             </div>

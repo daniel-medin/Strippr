@@ -8,6 +8,7 @@
   const silenceSlider = form.querySelector("[data-silence-slider]");
   const apiKeyInput = form.querySelector("[data-ai-api-key]");
   const modelSelect = form.querySelector("[data-ai-model]");
+  const languageSelect = form.querySelector("[data-ai-language]");
   const aiEnabledToggle = form.querySelector("[data-ai-enabled]");
   const analyzeButton = form.querySelector("[data-ai-analyze]");
   const analyzeLabel = form.querySelector("[data-ai-analyze-label]");
@@ -24,6 +25,7 @@
     !(fileInput instanceof HTMLInputElement) ||
     !(apiKeyInput instanceof HTMLInputElement) ||
     !(modelSelect instanceof HTMLSelectElement) ||
+    !(languageSelect instanceof HTMLSelectElement) ||
     !(aiEnabledToggle instanceof HTMLInputElement) ||
     !(analyzeButton instanceof HTMLButtonElement) ||
     !(analyzeLabel instanceof HTMLElement) ||
@@ -39,6 +41,7 @@
   }
 
   const modelStorageKey = "strippr.ai.model";
+  const languageStorageKey = "strippr.ai.language";
   const hasDefaultServerKey = aiPanel.dataset.aiDefaultKeyAvailable === "true";
   const defaultServerModel = aiPanel.dataset.aiDefaultModel || "whisper-1";
   let aiRanges = [];
@@ -277,6 +280,11 @@
       } else if (defaultServerModel && hasOption(defaultServerModel)) {
         modelSelect.value = defaultServerModel;
       }
+
+      const storedLanguage = window.localStorage.getItem(languageStorageKey);
+      if (storedLanguage && Array.from(languageSelect.options).some((option) => option.value === storedLanguage)) {
+        languageSelect.value = storedLanguage;
+      }
     } catch {
       if (defaultServerModel && hasOption(defaultServerModel)) {
         modelSelect.value = defaultServerModel;
@@ -307,6 +315,7 @@
     formData.append("video", file);
     formData.append("apiKey", apiKey);
     formData.append("model", modelSelect.value);
+    formData.append("language", languageSelect.value);
     formData.append("minimumGapSeconds", silenceSlider instanceof HTMLInputElement ? silenceSlider.value : "0.5");
 
     try {
@@ -362,6 +371,13 @@
   });
 
   modelSelect.addEventListener("change", persistSettings);
+
+  languageSelect.addEventListener("change", () => {
+    try {
+      window.localStorage.setItem(languageStorageKey, languageSelect.value);
+    } catch {
+    }
+  });
 
   fileInput.addEventListener("change", () => {
     clearAiRanges();

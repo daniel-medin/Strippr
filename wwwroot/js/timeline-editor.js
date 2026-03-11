@@ -61,6 +61,7 @@
   const playResultButton = form.querySelector("[data-waveform-play-result]");
   const manualCutRangesInput = form.querySelector("[data-manual-cut-ranges]");
   const aiCutRangesInput = form.querySelector("[data-ai-cut-ranges]");
+  const aiContentCutRangesInput = form.querySelector("[data-ai-content-cut-ranges]");
   const markerSummary = form.querySelector("[data-marker-summary]");
   const markerList = form.querySelector("[data-marker-list]");
   const addMarkerButtons = Array.from(form.querySelectorAll("[data-add-marker]"));
@@ -84,6 +85,7 @@
   let dragMarkerId = null;
   let manualMarkers = [];
   let aiCutRanges = [];
+  let aiContentCutRanges = [];
   let decodedAudioBuffer = null;
   let previewAudio = null;
   let previewAudioUrl = null;
@@ -1011,7 +1013,7 @@
     const retainedSilenceSeconds = getRetainedSilenceSeconds();
     const cutHandleSeconds = getCutHandleSeconds();
     const manualRanges = normalizeRemovedRanges(durationSeconds, buildManualCutRanges().ranges);
-    const explicitRanges = normalizeRemovedRanges(durationSeconds, manualRanges.concat(aiCutRanges));
+    const explicitRanges = normalizeRemovedRanges(durationSeconds, manualRanges.concat(aiCutRanges, aiContentCutRanges));
     const silenceRanges = normalizeRemovedRanges(
       durationSeconds,
       applyCutHandles(detectSilenceRanges(), cutHandleSeconds),
@@ -1145,7 +1147,7 @@
   const buildWaveformCompressionPreviewRanges = (manualRanges) => {
     const explicitRanges = normalizeRemovedRanges(
       waveformDurationSeconds,
-      manualRanges.concat(aiCutRanges),
+      manualRanges.concat(aiCutRanges, aiContentCutRanges),
     );
     const sourceRanges = buildAutomaticEditRanges(explicitRanges);
 
@@ -1378,6 +1380,21 @@
     return previousKey !== nextKey;
   };
 
+  const setAiContentCutRanges = (ranges) => {
+    const nextAiContentCutRanges = waveformDurationSeconds > 0
+      ? normalizeRemovedRanges(waveformDurationSeconds, ranges)
+      : [];
+    const previousKey = serializeRanges(aiContentCutRanges);
+    const nextKey = serializeRanges(nextAiContentCutRanges);
+    aiContentCutRanges = nextAiContentCutRanges;
+
+    if (aiContentCutRangesInput instanceof HTMLInputElement) {
+      aiContentCutRangesInput.value = nextKey;
+    }
+
+    return previousKey !== nextKey;
+  };
+
   const resetEditor = () => {
     waveformToken += 1;
     detectedSilenceCacheKey = "";
@@ -1385,6 +1402,7 @@
     disposePreviewAudio();
     resetManualCuts();
     setAiCutRanges([]);
+    setAiContentCutRanges([]);
     waveformDurationSeconds = 0;
     waveformPeaks = null;
     playheadSeconds = null;
@@ -2238,6 +2256,18 @@
     const detail = event.detail || {};
     const nextAiRanges = Array.isArray(detail.ranges) ? detail.ranges : [];
     const didChange = setAiCutRanges(nextAiRanges);
+    if (!didChange) {
+      return;
+    }
+
+    stopResultPreview();
+    drawWaveform();
+  });
+
+  form.addEventListener("strippr:ai-content-ranges-changed", (event) => {
+    const detail = event.detail || {};
+    const nextAiContentRanges = Array.isArray(detail.ranges) ? detail.ranges : [];
+    const didChange = setAiContentCutRanges(nextAiContentRanges);
     if (!didChange) {
       return;
     }

@@ -73,6 +73,7 @@ public sealed class IndexModel : PageModel
         await LoadHealthAsync(cancellationToken);
         var manualCutRanges = ParseCutRanges(Input.ManualCutRangesJson);
         var aiCutRanges = ParseCutRanges(Input.AiCutRangesJson);
+        var aiContentCutRanges = ParseCutRanges(Input.AiContentCutRangesJson);
 
         if (Input.Video is null)
         {
@@ -93,6 +94,13 @@ public sealed class IndexModel : PageModel
                 "The AI cut ranges could not be read. Run the AI analysis again.");
         }
 
+        if (aiContentCutRanges is null)
+        {
+            ModelState.AddModelError(
+                $"{nameof(Input)}.{nameof(Input.AiContentCutRangesJson)}",
+                "The A2 cut ranges could not be read. Run the A2 analysis again.");
+        }
+
         if (!ModelState.IsValid)
         {
             return Page();
@@ -100,6 +108,7 @@ public sealed class IndexModel : PageModel
 
         var explicitCutRanges = manualCutRanges!
             .Concat(aiCutRanges!)
+            .Concat(aiContentCutRanges!)
             .ToList();
 
         var automaticSilenceEnabled = Input.EnableNoiseThreshold && Input.EnableMinimumSilence;
@@ -164,7 +173,8 @@ public sealed class IndexModel : PageModel
             EnablePauseSpeed = false,
             PauseSpeedMultiplier = _options.DefaultPauseSpeedMultiplier,
             ManualCutRangesJson = "[]",
-            AiCutRangesJson = "[]"
+            AiCutRangesJson = "[]",
+            AiContentCutRangesJson = "[]"
         };
     }
 
@@ -219,6 +229,8 @@ public sealed class IndexModel : PageModel
         public string ManualCutRangesJson { get; set; } = "[]";
 
         public string AiCutRangesJson { get; set; } = "[]";
+
+        public string AiContentCutRangesJson { get; set; } = "[]";
     }
 
     private static IReadOnlyList<SilenceInterval>? ParseCutRanges(string? cutRangesJson)
