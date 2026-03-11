@@ -86,6 +86,15 @@ public sealed partial class FfmpegService
         return new MediaAnalysis(durationSeconds, frameRate, silenceIntervals);
     }
 
+    public async Task<MediaAnalysis> AnalyzeMediaAsync(
+        string inputPath,
+        CancellationToken cancellationToken)
+    {
+        var durationSeconds = await ProbeDurationAsync(inputPath, cancellationToken);
+        var frameRate = await ProbeFrameRateAsync(inputPath, cancellationToken);
+        return new MediaAnalysis(durationSeconds, frameRate, []);
+    }
+
     public async Task<double> RenderWithoutSilenceAsync(
         string inputPath,
         string outputPath,
@@ -119,6 +128,62 @@ public sealed partial class FfmpegService
         }
 
         return renderPlan.AppliedCrossfadeSeconds;
+    }
+
+    public async Task<double> ProbeDurationAsync(string inputPath, CancellationToken cancellationToken)
+    {
+        var result = await RunProcessAsync(
+            ResolveProbePath(),
+            arguments:
+            [
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                inputPath
+            ],
+            cancellationToken: cancellationToken);
+
+        if (result.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"FFprobe duration probe failed: {result.StandardError}");
+        }
+
+        if (!double.TryParse(result.StandardOutput.Trim(), CultureInfo.InvariantCulture, out var durationSeconds) ||
+            !double.IsFinite(durationSeconds) ||
+            durationSeconds <= 0)
+        {
+            throw new InvalidOperationException("Unable to read media duration from FFprobe output.");
+        }
+
+        return durationSeconds;
+    }
+
+    public async Task ExtractTranscriptionAudioAsync(
+        string inputPath,
+        string outputPath,
+        CancellationToken cancellationToken)
+    {
+        var executablePath = ResolveExecutablePath();
+        var result = await RunProcessAsync(
+            executablePath,
+            arguments:
+            [
+                "-y",
+                "-hide_banner",
+                "-i", inputPath,
+                "-vn",
+                "-ac", "1",
+                "-ar", "16000",
+                "-c:a", "libmp3lame",
+                "-b:a", "24k",
+                outputPath
+            ],
+            cancellationToken: cancellationToken);
+
+        if (result.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"FFmpeg transcription-audio extraction failed: {result.StandardError}");
+        }
     }
 
     private async Task<ProcessResult> RunProcessAsync(

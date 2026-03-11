@@ -49,10 +49,14 @@
         </label>
 
         <div class="field-grid">
-            <label class="field">
+            <div class="field" data-setting-field="noise">
                 <div class="field-topline">
                     <span>Noise threshold</span>
                     <div class="slider-head">
+                        <label class="field-toggle">
+                            <input asp-for="Input.EnableNoiseThreshold" class="field-toggle__input" data-setting-toggle="noise" />
+                            <span class="field-toggle__label">On</span>
+                        </label>
                         <strong class="dial-readout" data-noise-display>-30 dB</strong>
                     </div>
                 </div>
@@ -62,13 +66,17 @@
                     <span>-60 dB</span>
                     <span>0 dB</span>
                 </div>
-                <small class="field-help">Sets how quiet audio must be before Strippr treats it as silence.</small>
-            </label>
+                <small class="field-help">Sets how quiet audio must be before Strippr treats it as silence. If this or Minimum silence is off, automatic silence detection is fully bypassed.</small>
+            </div>
 
-            <label class="field">
+            <div class="field" data-setting-field="silence">
                 <div class="field-topline">
                     <span>Minimum silence</span>
                     <div class="slider-head">
+                        <label class="field-toggle">
+                            <input asp-for="Input.EnableMinimumSilence" class="field-toggle__input" data-setting-toggle="silence" />
+                            <span class="field-toggle__label">On</span>
+                        </label>
                         <strong class="dial-readout" data-silence-display>0.5 s</strong>
                     </div>
                 </div>
@@ -77,13 +85,17 @@
                     <span>0.1 s</span>
                     <span>3.0 s</span>
                 </div>
-                <small class="field-help">Silent audio must last at least this long before Strippr edits it.</small>
-            </label>
+                <small class="field-help">Silent audio must last at least this long before Strippr edits it. If this or Noise threshold is off, automatic silence detection is fully bypassed.</small>
+            </div>
 
-            <label class="field">
+            <div class="field" data-setting-field="retained-silence">
                 <div class="field-topline">
                     <span>Min kept pause</span>
                     <div class="slider-head">
+                        <label class="field-toggle">
+                            <input asp-for="Input.EnableRetainedSilence" class="field-toggle__input" data-setting-toggle="retained-silence" />
+                            <span class="field-toggle__label">On</span>
+                        </label>
                         <strong class="dial-readout" data-retained-silence-display>0.00 s</strong>
                     </div>
                 </div>
@@ -93,12 +105,16 @@
                     <span>1.00 s</span>
                 </div>
                 <small class="field-help">Leaves at least this much pause in the finished result after an automatic silence edit.</small>
-            </label>
+            </div>
 
-            <label class="field">
+            <div class="field" data-setting-field="cut-handles">
                 <div class="field-topline">
                     <span>Cut handles</span>
                     <div class="slider-head">
+                        <label class="field-toggle">
+                            <input asp-for="Input.EnableCutHandles" class="field-toggle__input" data-setting-toggle="cut-handles" />
+                            <span class="field-toggle__label">On</span>
+                        </label>
                         <strong class="dial-readout" data-cut-handle-display>120 ms</strong>
                     </div>
                 </div>
@@ -108,12 +124,16 @@
                     <span>500 ms</span>
                 </div>
                 <small class="field-help">Keeps this much untouched silence on both sides of automatic silence edits to soften jumps.</small>
-            </label>
+            </div>
 
-            <label class="field">
+            <div class="field" data-setting-field="crossfade">
                 <div class="field-topline">
                     <span>Crossfade</span>
                     <div class="slider-head">
+                        <label class="field-toggle">
+                            <input asp-for="Input.EnableCrossfade" class="field-toggle__input" data-setting-toggle="crossfade" />
+                            <span class="field-toggle__label">On</span>
+                        </label>
                         <strong class="dial-readout" data-crossfade-display>80 ms</strong>
                     </div>
                 </div>
@@ -123,12 +143,16 @@
                     <span>500 ms</span>
                 </div>
                 <small class="field-help">Crossfades audio at hard cut points to reduce clicks and abrupt joins.</small>
-            </label>
+            </div>
 
-            <label class="field">
+            <div class="field" data-setting-field="video-crossfade">
                 <div class="field-topline">
                     <span>Video crossfade</span>
                     <div class="slider-head">
+                        <label class="field-toggle">
+                            <input asp-for="Input.EnableVideoCrossfade" class="field-toggle__input" data-setting-toggle="video-crossfade" />
+                            <span class="field-toggle__label">On</span>
+                        </label>
                         <strong class="dial-readout" data-video-crossfade-display>0 fr</strong>
                     </div>
                 </div>
@@ -138,12 +162,16 @@
                     <span>48 fr</span>
                 </div>
                 <small class="field-help">Blends adjacent video shots over a short frame range on hard cuts.</small>
-            </label>
+            </div>
 
-            <label class="field field--wide">
+            <div class="field field--wide" data-setting-field="pause-speed">
                 <div class="field-topline">
                     <span>Pause speed</span>
                     <div class="slider-head">
+                        <label class="field-toggle">
+                            <input asp-for="Input.EnablePauseSpeed" class="field-toggle__input" data-setting-toggle="pause-speed" />
+                            <span class="field-toggle__label">On</span>
+                        </label>
                         <strong class="dial-readout" data-pause-speed-display>1.0x</strong>
                     </div>
                 </div>
@@ -154,7 +182,7 @@
                     <span>10.0x</span>
                 </div>
                 <small class="field-help"><code>1.0x</code> uses the minimum kept pause. Higher values compress silence faster instead of fully removing it.</small>
-            </label>
+            </div>
         </div>
 
         <input asp-for="Input.ManualCutRangesJson" type="hidden" data-manual-cut-ranges />
@@ -195,6 +223,53 @@
                     </div>
                 </label>
             </div>
+            <section
+                class="ai-analysis-panel"
+                data-ai-default-key-available="@Model.HasConfiguredOpenAiApiKey.ToString().ToLowerInvariant()"
+                data-ai-default-model="@Model.DefaultOpenAiModel">
+                <div class="ai-analysis-head">
+                    <div>
+                        <p class="panel-kicker">AI overlay</p>
+                        <strong>Transcript gap detection</strong>
+                    </div>
+                    <span class="ai-analysis-tag">@(Model.HasConfiguredOpenAiApiKey ? "Local key ready" : "Overlay only")</span>
+                </div>
+                <div class="ai-analysis-grid">
+                    <label class="ai-analysis-field">
+                        <span>OpenAI API key</span>
+                        <input
+                            type="password"
+                            autocomplete="off"
+                            spellcheck="false"
+                            placeholder="@(Model.HasConfiguredOpenAiApiKey ? "Leave blank to use local key" : "sk-...")"
+                            data-ai-api-key />
+                    </label>
+                    <label class="ai-analysis-field">
+                        <span>Model</span>
+                        <select data-ai-model>
+                            <option value="whisper-1">whisper-1</option>
+                        </select>
+                    </label>
+                    <div class="ai-analysis-actions">
+                        <button class="secondary-button" type="button" data-ai-analyze>
+                            <span class="ai-analysis-spinner" hidden aria-hidden="true"></span>
+                            <span data-ai-analyze-label>Analyze with AI</span>
+                        </button>
+                        <button class="secondary-button" type="button" data-ai-clear hidden>Clear AI overlay</button>
+                    </div>
+                </div>
+                <p class="ai-analysis-help">
+                    @if (Model.HasConfiguredOpenAiApiKey)
+                    {
+                        <text>Uses OpenAI transcript timing gaps to suggest silent sections. A local key is configured on this machine, so you can leave the field blank or override it for one run. This overlay currently uses timestamp-capable transcription models only. AI ranges do not change manual cuts.</text>
+                    }
+                    else
+                    {
+                        <text>Uses OpenAI transcript timing gaps to suggest silent sections. The API key stays in this local app flow, Strippr does not save it, and this overlay currently uses timestamp-capable transcription models only. AI ranges do not change manual cuts.</text>
+                    }
+                </p>
+                <p class="ai-analysis-status" data-ai-status hidden></p>
+            </section>
             <div class="waveform-actions">
                 <div class="waveform-action-buttons">
                     <button class="timeline-button" type="button" data-waveform-play disabled>Play audio (Space)</button>
@@ -209,6 +284,7 @@
             <div class="waveform-viewport" data-waveform-viewport>
                 <div class="waveform-stage" data-waveform-stage>
                     <canvas class="waveform-canvas" data-waveform-canvas></canvas>
+                    <div class="waveform-ai-overlay" data-ai-waveform-overlay></div>
                     <div class="waveform-overlay" data-waveform-overlay></div>
                 </div>
             </div>

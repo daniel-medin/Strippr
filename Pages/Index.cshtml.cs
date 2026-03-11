@@ -34,6 +34,12 @@ public sealed class IndexModel : PageModel
 
     public string FfmpegStatusMessage { get; private set; } = string.Empty;
 
+    public bool HasConfiguredOpenAiApiKey => !string.IsNullOrWhiteSpace(_options.OpenAiApiKey);
+
+    public string DefaultOpenAiModel => string.IsNullOrWhiteSpace(_options.DefaultOpenAiModel)
+        ? "whisper-1"
+        : _options.DefaultOpenAiModel;
+
     public async Task OnGetAsync(CancellationToken cancellationToken)
     {
         ApplyDefaults();
@@ -62,15 +68,33 @@ public sealed class IndexModel : PageModel
             return Page();
         }
 
+        var automaticSilenceEnabled = Input.EnableNoiseThreshold && Input.EnableMinimumSilence;
+        var retainedSilenceSeconds = Input.EnableRetainedSilence
+            ? Input.RetainedSilenceSeconds
+            : 0;
+        var cutHandleMilliseconds = Input.EnableCutHandles
+            ? Input.CutHandleMilliseconds
+            : 0;
+        var crossfadeMilliseconds = Input.EnableCrossfade
+            ? Input.CrossfadeMilliseconds
+            : 0;
+        var videoCrossfadeFrames = Input.EnableVideoCrossfade
+            ? Input.VideoCrossfadeFrames
+            : 0;
+        var pauseSpeedMultiplier = Input.EnablePauseSpeed
+            ? Input.PauseSpeedMultiplier
+            : 1;
+
         Result = await _videoProcessingService.ProcessAsync(
             Input.Video!,
+            automaticSilenceEnabled,
             Input.NoiseThreshold,
             Input.MinimumSilenceSeconds,
-            Input.RetainedSilenceSeconds,
-            Input.CutHandleMilliseconds,
-            Input.CrossfadeMilliseconds,
-            Input.VideoCrossfadeFrames,
-            Input.PauseSpeedMultiplier,
+            retainedSilenceSeconds,
+            cutHandleMilliseconds,
+            crossfadeMilliseconds,
+            videoCrossfadeFrames,
+            pauseSpeedMultiplier,
             manualCutRanges!,
             cancellationToken);
 
@@ -91,12 +115,19 @@ public sealed class IndexModel : PageModel
     {
         Input = new InputModel
         {
+            EnableNoiseThreshold = true,
             NoiseThreshold = _options.DefaultNoiseThreshold,
+            EnableMinimumSilence = true,
             MinimumSilenceSeconds = _options.DefaultMinimumSilenceSeconds,
+            EnableRetainedSilence = true,
             RetainedSilenceSeconds = _options.DefaultRetainedSilenceSeconds,
+            EnableCutHandles = true,
             CutHandleMilliseconds = _options.DefaultCutHandleMilliseconds,
+            EnableCrossfade = true,
             CrossfadeMilliseconds = _options.DefaultCrossfadeMilliseconds,
+            EnableVideoCrossfade = true,
             VideoCrossfadeFrames = _options.DefaultVideoCrossfadeFrames,
+            EnablePauseSpeed = true,
             PauseSpeedMultiplier = _options.DefaultPauseSpeedMultiplier,
             ManualCutRangesJson = "[]"
         };
@@ -114,24 +145,38 @@ public sealed class IndexModel : PageModel
         [Required]
         public IFormFile? Video { get; set; }
 
+        public bool EnableNoiseThreshold { get; set; } = true;
+
         [Required]
         [RegularExpression(@"^-?\d+(?:\.\d+)?dB$", ErrorMessage = "Use a value like -30dB.")]
         public string NoiseThreshold { get; set; } = string.Empty;
 
+        public bool EnableMinimumSilence { get; set; } = true;
+
         [Range(0.1, 10)]
         public double MinimumSilenceSeconds { get; set; }
+
+        public bool EnableRetainedSilence { get; set; } = true;
 
         [Range(0, 1)]
         public double RetainedSilenceSeconds { get; set; }
 
+        public bool EnableCutHandles { get; set; } = true;
+
         [Range(0, 500)]
         public double CutHandleMilliseconds { get; set; }
+
+        public bool EnableCrossfade { get; set; } = true;
 
         [Range(0, 500)]
         public double CrossfadeMilliseconds { get; set; }
 
+        public bool EnableVideoCrossfade { get; set; } = true;
+
         [Range(0, 48)]
         public int VideoCrossfadeFrames { get; set; }
+
+        public bool EnablePauseSpeed { get; set; } = true;
 
         [Range(1, 10)]
         public double PauseSpeedMultiplier { get; set; }

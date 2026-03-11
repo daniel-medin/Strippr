@@ -141,6 +141,14 @@ pre {
   object-fit: contain;
 }
 
+.site-slogan {
+  font-size: 0.58em;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--muted);
+  text-shadow: none;
+}
+
 .site-caption,
 .site-support,
 .site-footer {

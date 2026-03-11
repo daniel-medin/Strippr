@@ -23,6 +23,10 @@ public sealed class StripprOptions
 
     public long MaxUploadMegabytes { get; set; } = 1024;
 
+    public string OpenAiApiKey { get; set; } = string.Empty;
+
+    public string DefaultOpenAiModel { get; set; } = "whisper-1";
+
     public string DefaultNoiseThreshold { get; set; } = "-30dB";
 
     public double DefaultMinimumSilenceSeconds { get; set; } = 0.5;

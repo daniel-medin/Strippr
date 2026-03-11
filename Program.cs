@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net.Mime;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -9,6 +10,7 @@ using Strippr.Options;
 using Strippr.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
 var maxUploadMegabytes = builder.Configuration.GetValue<long?>("Strippr:MaxUploadMegabytes") ?? 1024;
 var maxUploadBytes = maxUploadMegabytes * 1024 * 1024;
@@ -24,6 +26,7 @@ builder.Services.Configure<FormOptions>(options =>
     options.MultipartBodyLengthLimit = maxUploadBytes;
 });
 builder.Services.AddHttpClient<FfmpegBootstrapper>();
+builder.Services.AddHttpClient<OpenAiSilenceAnalysisService>();
 builder.Services.AddRazorPages();
 builder.Services.AddSingleton<WorkspaceService>();
 builder.Services.AddSingleton<FfmpegService>();
@@ -106,6 +109,72 @@ app.MapGet("/download/{fileName}", async Task<IResult> (
     }
 
     return Results.Empty;
+});
+app.MapPost("/api/ai/silence-analysis", async Task<IResult> (
+    HttpRequest request,
+    OpenAiSilenceAnalysisService openAiSilenceAnalysisService,
+    CancellationToken cancellationToken) =>
+{
+    if (!request.HasFormContentType)
+    {
+        return Results.BadRequest(new
+        {
+            success = false,
+            message = "AI analysis expects multipart form data."
+        });
+    }
+
+    var form = await request.ReadFormAsync(cancellationToken);
+    var video = form.Files.GetFile("video");
+    var apiKey = form["apiKey"].ToString();
+    var model = form["model"].ToString();
+    var minimumGapValue = form["minimumGapSeconds"].ToString();
+
+    if (video is null)
+    {
+        return Results.BadRequest(new
+        {
+            success = false,
+            message = "Choose a video file before running AI analysis."
+        });
+    }
+
+    if (!double.TryParse(minimumGapValue, NumberStyles.Float, CultureInfo.InvariantCulture, out var minimumGapSeconds) ||
+        !double.IsFinite(minimumGapSeconds))
+    {
+        minimumGapSeconds = 0.5;
+    }
+
+    try
+    {
+        var result = await openAiSilenceAnalysisService.AnalyzeAsync(
+            video,
+            apiKey,
+            model,
+            minimumGapSeconds,
+            cancellationToken);
+
+        return Results.Ok(new
+        {
+            success = true,
+            model = result.Model,
+            durationSeconds = result.DurationSeconds,
+            message = result.Message,
+            ranges = result.SilenceRanges.Select(range => new
+            {
+                startSeconds = range.StartSeconds,
+                endSeconds = range.EndSeconds
+            })
+        });
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(new
+        {
+            success = false,
+            message = exception.Message
+        });
+    }
 });
 app.MapRazorPages()
    .WithStaticAssets();

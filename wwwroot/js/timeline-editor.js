@@ -16,18 +16,32 @@
   const noiseInput = form.querySelector("input[name='Input.NoiseThreshold']");
   const noiseSlider = form.querySelector("[data-noise-slider]");
   const noiseDisplay = form.querySelector("[data-noise-display]");
+  const noiseToggle = form.querySelector("[data-setting-toggle='noise']");
+  const noiseField = form.querySelector("[data-setting-field='noise']");
   const silenceSlider = form.querySelector("[data-silence-slider]");
   const silenceDisplay = form.querySelector("[data-silence-display]");
+  const silenceToggle = form.querySelector("[data-setting-toggle='silence']");
+  const silenceField = form.querySelector("[data-setting-field='silence']");
   const retainedSilenceSlider = form.querySelector("[data-retained-silence-slider]");
   const retainedSilenceDisplay = form.querySelector("[data-retained-silence-display]");
+  const retainedSilenceToggle = form.querySelector("[data-setting-toggle='retained-silence']");
+  const retainedSilenceField = form.querySelector("[data-setting-field='retained-silence']");
   const cutHandleSlider = form.querySelector("[data-cut-handle-slider]");
   const cutHandleDisplay = form.querySelector("[data-cut-handle-display]");
+  const cutHandleToggle = form.querySelector("[data-setting-toggle='cut-handles']");
+  const cutHandleField = form.querySelector("[data-setting-field='cut-handles']");
   const crossfadeSlider = form.querySelector("[data-crossfade-slider]");
   const crossfadeDisplay = form.querySelector("[data-crossfade-display]");
+  const crossfadeToggle = form.querySelector("[data-setting-toggle='crossfade']");
+  const crossfadeField = form.querySelector("[data-setting-field='crossfade']");
   const videoCrossfadeSlider = form.querySelector("[data-video-crossfade-slider]");
   const videoCrossfadeDisplay = form.querySelector("[data-video-crossfade-display]");
+  const videoCrossfadeToggle = form.querySelector("[data-setting-toggle='video-crossfade']");
+  const videoCrossfadeField = form.querySelector("[data-setting-field='video-crossfade']");
   const pauseSpeedSlider = form.querySelector("[data-pause-speed-slider]");
   const pauseSpeedDisplay = form.querySelector("[data-pause-speed-display]");
+  const pauseSpeedToggle = form.querySelector("[data-setting-toggle='pause-speed']");
+  const pauseSpeedField = form.querySelector("[data-setting-field='pause-speed']");
   const validationSummary = form.querySelector(".validation-summary");
   let resultPanel = document.querySelector("[data-result-panel]");
   const submitButton = form.querySelector("button[type='submit']");
@@ -176,12 +190,19 @@
 
   const captureDefaultState = () => ({
     noiseSlider: noiseSlider ? noiseSlider.value : null,
+    noiseToggle: noiseToggle instanceof HTMLInputElement ? noiseToggle.checked : true,
     silenceSlider: silenceSlider ? silenceSlider.value : null,
+    silenceToggle: silenceToggle instanceof HTMLInputElement ? silenceToggle.checked : true,
     retainedSilenceSlider: retainedSilenceSlider ? retainedSilenceSlider.value : null,
+    retainedSilenceToggle: retainedSilenceToggle instanceof HTMLInputElement ? retainedSilenceToggle.checked : true,
     cutHandleSlider: cutHandleSlider ? cutHandleSlider.value : null,
+    cutHandleToggle: cutHandleToggle instanceof HTMLInputElement ? cutHandleToggle.checked : true,
     crossfadeSlider: crossfadeSlider ? crossfadeSlider.value : null,
+    crossfadeToggle: crossfadeToggle instanceof HTMLInputElement ? crossfadeToggle.checked : true,
     videoCrossfadeSlider: videoCrossfadeSlider ? videoCrossfadeSlider.value : null,
+    videoCrossfadeToggle: videoCrossfadeToggle instanceof HTMLInputElement ? videoCrossfadeToggle.checked : true,
     pauseSpeedSlider: pauseSpeedSlider ? pauseSpeedSlider.value : null,
+    pauseSpeedToggle: pauseSpeedToggle instanceof HTMLInputElement ? pauseSpeedToggle.checked : true,
     waveformVerticalZoom: waveformVerticalZoom ? waveformVerticalZoom.value : "1",
     waveformHorizontalZoom: waveformHorizontalZoom ? waveformHorizontalZoom.value : "1",
   });
@@ -207,6 +228,8 @@
     if (waveformOverlay) {
       waveformOverlay.innerHTML = "";
     }
+
+    emitWaveformStateChanged();
   };
 
   const syncSelectedFileName = () => {
@@ -233,13 +256,82 @@
     }
   };
 
+  const isToggleEnabled = (toggle) => !(toggle instanceof HTMLInputElement) || toggle.checked;
+  const isNoiseThresholdEnabled = () => isToggleEnabled(noiseToggle);
+  const isMinimumSilenceEnabled = () => isToggleEnabled(silenceToggle);
+  const isAutomaticSilenceEnabled = () => isNoiseThresholdEnabled() && isMinimumSilenceEnabled();
+  const isRetainedSilenceEnabled = () => isToggleEnabled(retainedSilenceToggle);
+  const isCutHandleEnabled = () => isToggleEnabled(cutHandleToggle);
+  const isCrossfadeEnabled = () => isToggleEnabled(crossfadeToggle);
+  const isVideoCrossfadeEnabled = () => isToggleEnabled(videoCrossfadeToggle);
+  const isPauseSpeedEnabled = () => isToggleEnabled(pauseSpeedToggle);
+
+  const syncToggleLabel = (toggle) => {
+    if (!(toggle instanceof HTMLInputElement)) {
+      return;
+    }
+
+    const label = toggle.parentElement?.querySelector(".field-toggle__label");
+    if (label instanceof HTMLElement) {
+      label.textContent = toggle.checked ? "On" : "Off";
+    }
+  };
+
+  const syncFieldState = (field, slider, isEnabled) => {
+    if (field instanceof HTMLElement) {
+      field.classList.toggle("is-bypassed", !isEnabled);
+    }
+
+    if (slider instanceof HTMLInputElement) {
+      slider.setAttribute("aria-disabled", isEnabled ? "false" : "true");
+      slider.tabIndex = isEnabled ? 0 : -1;
+    }
+  };
+
+  const syncBypassStates = () => {
+    [
+      noiseToggle,
+      silenceToggle,
+      retainedSilenceToggle,
+      cutHandleToggle,
+      crossfadeToggle,
+      videoCrossfadeToggle,
+      pauseSpeedToggle,
+    ].forEach(syncToggleLabel);
+
+    const automaticSilenceEnabled = isAutomaticSilenceEnabled();
+    syncFieldState(noiseField, noiseSlider, automaticSilenceEnabled);
+    syncFieldState(silenceField, silenceSlider, automaticSilenceEnabled);
+    syncFieldState(retainedSilenceField, retainedSilenceSlider, isRetainedSilenceEnabled());
+    syncFieldState(cutHandleField, cutHandleSlider, isCutHandleEnabled());
+    syncFieldState(crossfadeField, crossfadeSlider, isCrossfadeEnabled());
+    syncFieldState(videoCrossfadeField, videoCrossfadeSlider, isVideoCrossfadeEnabled());
+    syncFieldState(pauseSpeedField, pauseSpeedSlider, isPauseSpeedEnabled());
+  };
+
   const updateThresholdReadout = () => {
     if (!thresholdReadout) {
       return;
     }
 
+    if (!isAutomaticSilenceEnabled()) {
+      thresholdReadout.textContent = "Off";
+      return;
+    }
+
     const thresholdDb = parseThresholdDb();
     thresholdReadout.textContent = thresholdDb === null ? "Invalid dB" : `${thresholdDb.toFixed(1)} dB`;
+  };
+
+  const emitWaveformStateChanged = () => {
+    form.dispatchEvent(new CustomEvent("strippr:waveform-state", {
+      detail: {
+        durationSeconds: waveformDurationSeconds,
+        stageWidth: waveformStage ? waveformStage.clientWidth : 0,
+        ready: Boolean(waveformPeaks && waveformDurationSeconds > 0),
+        hidden: Boolean(waveformPanel?.hidden),
+      },
+    }));
   };
 
   const getSliderRatio = (slider) => {
@@ -289,7 +381,7 @@
     noiseInput.value = `${sliderValue.toFixed(0)}dB`;
 
     if (noiseDisplay) {
-      noiseDisplay.textContent = `${sliderValue.toFixed(0)} dB`;
+      noiseDisplay.textContent = isAutomaticSilenceEnabled() ? `${sliderValue.toFixed(0)} dB` : "Off";
     }
 
     syncSliderVisual(noiseSlider, noiseDisplay);
@@ -302,7 +394,7 @@
 
     const sliderValue = Number.parseFloat(silenceSlider.value);
     if (silenceDisplay) {
-      silenceDisplay.textContent = `${sliderValue.toFixed(1)} s`;
+      silenceDisplay.textContent = isAutomaticSilenceEnabled() ? `${sliderValue.toFixed(1)} s` : "Off";
     }
 
     syncSliderVisual(silenceSlider, silenceDisplay);
@@ -314,7 +406,7 @@
     }
 
     const sliderValue = Number.parseFloat(retainedSilenceSlider.value);
-    retainedSilenceDisplay.textContent = `${sliderValue.toFixed(2)} s`;
+    retainedSilenceDisplay.textContent = isRetainedSilenceEnabled() ? `${sliderValue.toFixed(2)} s` : "Off";
     syncSliderVisual(retainedSilenceSlider, retainedSilenceDisplay);
   };
 
@@ -324,7 +416,7 @@
     }
 
     const sliderValue = Number.parseFloat(cutHandleSlider.value);
-    cutHandleDisplay.textContent = `${sliderValue.toFixed(0)} ms`;
+    cutHandleDisplay.textContent = isCutHandleEnabled() ? `${sliderValue.toFixed(0)} ms` : "Off";
     syncSliderVisual(cutHandleSlider, cutHandleDisplay);
   };
 
@@ -334,7 +426,7 @@
     }
 
     const sliderValue = Number.parseFloat(crossfadeSlider.value);
-    crossfadeDisplay.textContent = `${sliderValue.toFixed(0)} ms`;
+    crossfadeDisplay.textContent = isCrossfadeEnabled() ? `${sliderValue.toFixed(0)} ms` : "Off";
     syncSliderVisual(crossfadeSlider, crossfadeDisplay);
   };
 
@@ -344,7 +436,7 @@
     }
 
     const sliderValue = Number.parseInt(videoCrossfadeSlider.value, 10);
-    videoCrossfadeDisplay.textContent = `${sliderValue} fr`;
+    videoCrossfadeDisplay.textContent = isVideoCrossfadeEnabled() ? `${sliderValue} fr` : "Off";
     syncSliderVisual(videoCrossfadeSlider, videoCrossfadeDisplay);
   };
 
@@ -354,7 +446,7 @@
     }
 
     const sliderValue = Number.parseFloat(pauseSpeedSlider.value);
-    pauseSpeedDisplay.textContent = `${sliderValue.toFixed(1)}x`;
+    pauseSpeedDisplay.textContent = isPauseSpeedEnabled() ? `${sliderValue.toFixed(1)}x` : "Off";
     syncSliderVisual(pauseSpeedSlider, pauseSpeedDisplay);
   };
 
@@ -376,6 +468,18 @@
 
       syncSliderVisual(waveformHorizontalZoom, waveformHorizontalDisplay);
     }
+  };
+
+  const syncAllProcessingControls = () => {
+    syncBypassStates();
+    syncNoiseControls();
+    syncSilenceControls();
+    syncRetainedSilenceControls();
+    syncCutHandleControls();
+    syncCrossfadeControls();
+    syncVideoCrossfadeControls();
+    syncPauseSpeedControls();
+    updateThresholdReadout();
   };
 
   const stopPlaybackTracking = () => {
@@ -541,7 +645,7 @@
   };
 
   const getCrossfadeMilliseconds = () => {
-    if (!crossfadeSlider) {
+    if (!crossfadeSlider || !isCrossfadeEnabled()) {
       return 0;
     }
 
@@ -549,7 +653,7 @@
   };
 
   const getRetainedSilenceSeconds = () => {
-    if (!retainedSilenceSlider) {
+    if (!retainedSilenceSlider || !isRetainedSilenceEnabled()) {
       return 0;
     }
 
@@ -557,7 +661,7 @@
   };
 
   const getCutHandleSeconds = () => {
-    if (!cutHandleSlider) {
+    if (!cutHandleSlider || !isCutHandleEnabled()) {
       return 0;
     }
 
@@ -565,7 +669,7 @@
   };
 
   const getPauseSpeedMultiplier = () => {
-    if (!pauseSpeedSlider) {
+    if (!pauseSpeedSlider || !isPauseSpeedEnabled()) {
       return 1;
     }
 
@@ -695,13 +799,15 @@
   };
 
   const detectSilenceRanges = () => {
-    if (!decodedAudioBuffer) {
+    if (!decodedAudioBuffer || !isAutomaticSilenceEnabled()) {
+      detectedSilenceCacheKey = `${waveformToken}|auto-off`;
+      detectedSilenceCache = [];
       return [];
     }
 
     const thresholdDb = parseThresholdDb();
     const minimumSilenceSeconds = getMinimumSilenceSeconds();
-    const cacheKey = `${waveformToken}|${thresholdDb ?? "invalid"}|${minimumSilenceSeconds.toFixed(3)}`;
+    const cacheKey = `${waveformToken}|auto-on|${thresholdDb ?? "invalid"}|${minimumSilenceSeconds.toFixed(3)}`;
     if (detectedSilenceCacheKey === cacheKey) {
       return detectedSilenceCache;
     }
@@ -1228,28 +1334,56 @@
         noiseSlider.value = defaultState.noiseSlider;
       }
 
+      if (noiseToggle instanceof HTMLInputElement) {
+        noiseToggle.checked = defaultState.noiseToggle;
+      }
+
       if (silenceSlider && defaultState.silenceSlider !== null) {
         silenceSlider.value = defaultState.silenceSlider;
+      }
+
+      if (silenceToggle instanceof HTMLInputElement) {
+        silenceToggle.checked = defaultState.silenceToggle;
       }
 
       if (retainedSilenceSlider && defaultState.retainedSilenceSlider !== null) {
         retainedSilenceSlider.value = defaultState.retainedSilenceSlider;
       }
 
+      if (retainedSilenceToggle instanceof HTMLInputElement) {
+        retainedSilenceToggle.checked = defaultState.retainedSilenceToggle;
+      }
+
       if (cutHandleSlider && defaultState.cutHandleSlider !== null) {
         cutHandleSlider.value = defaultState.cutHandleSlider;
+      }
+
+      if (cutHandleToggle instanceof HTMLInputElement) {
+        cutHandleToggle.checked = defaultState.cutHandleToggle;
       }
 
       if (crossfadeSlider && defaultState.crossfadeSlider !== null) {
         crossfadeSlider.value = defaultState.crossfadeSlider;
       }
 
+      if (crossfadeToggle instanceof HTMLInputElement) {
+        crossfadeToggle.checked = defaultState.crossfadeToggle;
+      }
+
       if (videoCrossfadeSlider && defaultState.videoCrossfadeSlider !== null) {
         videoCrossfadeSlider.value = defaultState.videoCrossfadeSlider;
       }
 
+      if (videoCrossfadeToggle instanceof HTMLInputElement) {
+        videoCrossfadeToggle.checked = defaultState.videoCrossfadeToggle;
+      }
+
       if (pauseSpeedSlider && defaultState.pauseSpeedSlider !== null) {
         pauseSpeedSlider.value = defaultState.pauseSpeedSlider;
+      }
+
+      if (pauseSpeedToggle instanceof HTMLInputElement) {
+        pauseSpeedToggle.checked = defaultState.pauseSpeedToggle;
       }
 
       if (waveformVerticalZoom) {
@@ -1261,6 +1395,7 @@
       }
     }
 
+    syncBypassStates();
     syncNoiseControls();
     syncSilenceControls();
     syncRetainedSilenceControls();
@@ -1290,6 +1425,7 @@
     }
 
     syncPlaybackButtons();
+    emitWaveformStateChanged();
   };
 
   const getInsertionSeconds = () => {
@@ -1404,7 +1540,7 @@
     context.lineTo(cssWidth, centerY);
     context.stroke();
 
-    const thresholdDb = parseThresholdDb();
+    const thresholdDb = isAutomaticSilenceEnabled() ? parseThresholdDb() : null;
     if (thresholdDb !== null) {
       const amplitude = Math.max(0, Math.min(1, Math.pow(10, thresholdDb / 20)));
       const offset = amplitude * drawableHalfHeight;
@@ -1450,6 +1586,7 @@
     }
 
     renderWaveformOverlay();
+    emitWaveformStateChanged();
     window.requestAnimationFrame(() => {
       const nextScrollableWidth = Math.max(0, waveformViewport.scrollWidth - waveformViewport.clientWidth);
       waveformViewport.scrollLeft = nextScrollableWidth * scrollRatio;
@@ -1511,6 +1648,7 @@
     if (!file) {
       disposePreviewAudio();
       waveformPanel.hidden = true;
+      emitWaveformStateChanged();
       return;
     }
 
@@ -1520,6 +1658,7 @@
     const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextCtor) {
       waveformStatus.textContent = "This browser cannot decode audio for waveform preview.";
+      emitWaveformStateChanged();
       return;
     }
 
@@ -1551,12 +1690,15 @@
       decodedAudioBuffer = null;
       waveformStatus.textContent = "Could not decode audio from this file in the browser.";
       renderWaveformOverlay();
+      emitWaveformStateChanged();
     } finally {
       if (audioContext) {
         audioContext.close().catch(() => {});
       }
     }
   };
+
+  syncBypassStates();
 
   if (noiseInput && noiseSlider) {
     const initialThreshold = parseThresholdDb();
@@ -1573,11 +1715,27 @@
     });
   }
 
+  if (noiseToggle instanceof HTMLInputElement) {
+    noiseToggle.addEventListener("change", () => {
+      stopResultPreview();
+      syncAllProcessingControls();
+      drawWaveform();
+    });
+  }
+
   if (silenceSlider) {
     syncSilenceControls();
     silenceSlider.addEventListener("input", () => {
       stopResultPreview();
       syncSilenceControls();
+      drawWaveform();
+    });
+  }
+
+  if (silenceToggle instanceof HTMLInputElement) {
+    silenceToggle.addEventListener("change", () => {
+      stopResultPreview();
+      syncAllProcessingControls();
       drawWaveform();
     });
   }
@@ -1591,11 +1749,27 @@
     });
   }
 
+  if (retainedSilenceToggle instanceof HTMLInputElement) {
+    retainedSilenceToggle.addEventListener("change", () => {
+      stopResultPreview();
+      syncAllProcessingControls();
+      drawWaveform();
+    });
+  }
+
   if (cutHandleSlider) {
     syncCutHandleControls();
     cutHandleSlider.addEventListener("input", () => {
       stopResultPreview();
       syncCutHandleControls();
+      drawWaveform();
+    });
+  }
+
+  if (cutHandleToggle instanceof HTMLInputElement) {
+    cutHandleToggle.addEventListener("change", () => {
+      stopResultPreview();
+      syncAllProcessingControls();
       drawWaveform();
     });
   }
@@ -1608,10 +1782,23 @@
     });
   }
 
+  if (crossfadeToggle instanceof HTMLInputElement) {
+    crossfadeToggle.addEventListener("change", () => {
+      stopResultPreview();
+      syncAllProcessingControls();
+    });
+  }
+
   if (videoCrossfadeSlider) {
     syncVideoCrossfadeControls();
     videoCrossfadeSlider.addEventListener("input", () => {
       syncVideoCrossfadeControls();
+    });
+  }
+
+  if (videoCrossfadeToggle instanceof HTMLInputElement) {
+    videoCrossfadeToggle.addEventListener("change", () => {
+      syncAllProcessingControls();
     });
   }
 
@@ -1620,6 +1807,14 @@
     pauseSpeedSlider.addEventListener("input", () => {
       stopResultPreview();
       syncPauseSpeedControls();
+      drawWaveform();
+    });
+  }
+
+  if (pauseSpeedToggle instanceof HTMLInputElement) {
+    pauseSpeedToggle.addEventListener("change", () => {
+      stopResultPreview();
+      syncAllProcessingControls();
       drawWaveform();
     });
   }

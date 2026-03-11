@@ -8,5 +8,6 @@ tools/ffmpeg/package/
 strippr-run.log
 strippr-dev.log
 strippr-dev.err.log
+appsettings.Local.json
 *.user
 *.suo

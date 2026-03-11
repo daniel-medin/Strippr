@@ -78,6 +78,16 @@ public sealed class WorkspaceService
         return Path.Combine(OutputsPath, uniqueName);
     }
 
+    public string CreateTempPath(string baseName, string extension)
+    {
+        var safeBaseName = SanitizeFileName(baseName);
+        var normalizedExtension = extension.StartsWith('.')
+            ? extension
+            : $".{extension}";
+        var uniqueName = $"{safeBaseName}-{Guid.NewGuid():N}{normalizedExtension}";
+        return Path.Combine(TempPath, uniqueName);
+    }
+
     public string GetOutputUrl(string outputPath)
     {
         return $"/download/{Uri.EscapeDataString(Path.GetFileName(outputPath))}";

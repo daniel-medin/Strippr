@@ -28,6 +28,7 @@ public sealed class VideoProcessingService
 
     public async Task<VideoProcessingResult> ProcessAsync(
         IFormFile video,
+        bool automaticSilenceEnabled,
         string noiseThreshold,
         double minimumSilenceSeconds,
         double retainedSilenceSeconds,
@@ -83,11 +84,15 @@ public sealed class VideoProcessingService
 
         try
         {
-            var analysis = await _ffmpegService.AnalyzeSilenceAsync(
-                uploadPath,
-                noiseThreshold,
-                minimumSilenceSeconds,
-                cancellationToken);
+            var analysis = automaticSilenceEnabled
+                ? await _ffmpegService.AnalyzeSilenceAsync(
+                    uploadPath,
+                    noiseThreshold,
+                    minimumSilenceSeconds,
+                    cancellationToken)
+                : await _ffmpegService.AnalyzeMediaAsync(
+                    uploadPath,
+                    cancellationToken);
 
             var normalizedManualCutRanges = _cutPlanBuilder.Normalize(analysis.DurationSeconds, manualCutRanges);
             var normalizedSilenceRanges = _cutPlanBuilder.Normalize(analysis.DurationSeconds, analysis.SilenceIntervals);
@@ -127,7 +132,9 @@ public sealed class VideoProcessingService
 
                 var passthroughMessage = manualCutRanges.Count > 0
                     ? "No valid silence or manual cut ranges were left after normalization, so the original file was copied as-is."
-                    : "No silence matched the current thresholds, so the original file was copied as-is.";
+                    : automaticSilenceEnabled
+                        ? "No silence matched the current thresholds, so the original file was copied as-is."
+                        : "Automatic silence detection is off, so the original file was copied as-is.";
 
                 return new VideoProcessingResult(
                     Success: true,
@@ -152,7 +159,9 @@ public sealed class VideoProcessingService
 
                 return new VideoProcessingResult(
                     Success: true,
-                    Message: "No silence matched the current thresholds, so the original file was copied as-is.",
+                    Message: automaticSilenceEnabled
+                        ? "No silence matched the current thresholds, so the original file was copied as-is."
+                        : "Automatic silence detection is off, so the original file was copied as-is.",
                     OriginalFileName: video.FileName,
                     OutputFileName: Path.GetFileName(passthroughOutputPath),
                     OutputPath: passthroughOutputPath,
