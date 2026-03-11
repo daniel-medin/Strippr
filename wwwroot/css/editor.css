@@ -398,6 +398,14 @@ input[type="number"] {
   gap: 0.8rem;
 }
 
+.ai-analysis-headline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.7rem;
+}
+
 .ai-analysis-head strong,
 .ai-analysis-tag {
   font-family: var(--font-ui);
@@ -410,6 +418,10 @@ input[type="number"] {
   padding: 0.22rem 0.5rem;
   border: 1px solid rgba(255, 110, 80, 0.32);
   color: rgba(255, 143, 117, 0.95);
+}
+
+.ai-analysis-toggle {
+  color: var(--muted);
 }
 
 .ai-analysis-grid {
@@ -476,6 +488,21 @@ input[type="number"] {
 
 .ai-analysis-status.is-error {
   color: var(--danger);
+}
+
+.ai-analysis-panel.is-bypassed {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.ai-analysis-panel.is-bypassed .ai-analysis-grid,
+.ai-analysis-panel.is-bypassed .ai-analysis-help,
+.ai-analysis-panel.is-bypassed .ai-analysis-status,
+.ai-analysis-panel.is-bypassed .ai-analysis-tag {
+  color: var(--muted);
+}
+
+.ai-analysis-panel.is-bypassed .ai-analysis-grid {
+  opacity: 0.55;
 }
 
 .waveform-control {

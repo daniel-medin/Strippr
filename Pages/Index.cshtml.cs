@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Globalization;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -40,6 +41,27 @@ public sealed class IndexModel : PageModel
         ? "whisper-1"
         : _options.DefaultOpenAiModel;
 
+    public string DefaultNoiseThresholdDbText =>
+        TryParseNoiseThreshold(_options.DefaultNoiseThreshold)?.ToString("0.###", CultureInfo.InvariantCulture) ?? "-30";
+
+    public string DefaultMinimumSilenceSecondsText =>
+        _options.DefaultMinimumSilenceSeconds.ToString("0.###", CultureInfo.InvariantCulture);
+
+    public string DefaultRetainedSilenceSecondsText =>
+        _options.DefaultRetainedSilenceSeconds.ToString("0.###", CultureInfo.InvariantCulture);
+
+    public string DefaultCutHandleMillisecondsText =>
+        _options.DefaultCutHandleMilliseconds.ToString("0.###", CultureInfo.InvariantCulture);
+
+    public string DefaultCrossfadeMillisecondsText =>
+        _options.DefaultCrossfadeMilliseconds.ToString("0.###", CultureInfo.InvariantCulture);
+
+    public string DefaultVideoCrossfadeFramesText =>
+        _options.DefaultVideoCrossfadeFrames.ToString(CultureInfo.InvariantCulture);
+
+    public string DefaultPauseSpeedMultiplierText =>
+        _options.DefaultPauseSpeedMultiplier.ToString("0.###", CultureInfo.InvariantCulture);
+
     public async Task OnGetAsync(CancellationToken cancellationToken)
     {
         ApplyDefaults();
@@ -49,7 +71,8 @@ public sealed class IndexModel : PageModel
     public async Task<IActionResult> OnPostAsync(CancellationToken cancellationToken)
     {
         await LoadHealthAsync(cancellationToken);
-        var manualCutRanges = ParseManualCutRanges(Input.ManualCutRangesJson);
+        var manualCutRanges = ParseCutRanges(Input.ManualCutRangesJson);
+        var aiCutRanges = ParseCutRanges(Input.AiCutRangesJson);
 
         if (Input.Video is null)
         {
@@ -63,10 +86,21 @@ public sealed class IndexModel : PageModel
                 "The manual cut markers could not be read. Refresh the page and try again.");
         }
 
+        if (aiCutRanges is null)
+        {
+            ModelState.AddModelError(
+                $"{nameof(Input)}.{nameof(Input.AiCutRangesJson)}",
+                "The AI cut ranges could not be read. Run the AI analysis again.");
+        }
+
         if (!ModelState.IsValid)
         {
             return Page();
         }
+
+        var explicitCutRanges = manualCutRanges!
+            .Concat(aiCutRanges!)
+            .ToList();
 
         var automaticSilenceEnabled = Input.EnableNoiseThreshold && Input.EnableMinimumSilence;
         var retainedSilenceSeconds = Input.EnableRetainedSilence
@@ -95,7 +129,7 @@ public sealed class IndexModel : PageModel
             crossfadeMilliseconds,
             videoCrossfadeFrames,
             pauseSpeedMultiplier,
-            manualCutRanges!,
+            explicitCutRanges,
             cancellationToken);
 
         if (!Result.Success)
@@ -115,21 +149,22 @@ public sealed class IndexModel : PageModel
     {
         Input = new InputModel
         {
-            EnableNoiseThreshold = true,
+            EnableNoiseThreshold = false,
             NoiseThreshold = _options.DefaultNoiseThreshold,
-            EnableMinimumSilence = true,
+            EnableMinimumSilence = false,
             MinimumSilenceSeconds = _options.DefaultMinimumSilenceSeconds,
-            EnableRetainedSilence = true,
+            EnableRetainedSilence = false,
             RetainedSilenceSeconds = _options.DefaultRetainedSilenceSeconds,
-            EnableCutHandles = true,
+            EnableCutHandles = false,
             CutHandleMilliseconds = _options.DefaultCutHandleMilliseconds,
-            EnableCrossfade = true,
+            EnableCrossfade = false,
             CrossfadeMilliseconds = _options.DefaultCrossfadeMilliseconds,
-            EnableVideoCrossfade = true,
+            EnableVideoCrossfade = false,
             VideoCrossfadeFrames = _options.DefaultVideoCrossfadeFrames,
-            EnablePauseSpeed = true,
+            EnablePauseSpeed = false,
             PauseSpeedMultiplier = _options.DefaultPauseSpeedMultiplier,
-            ManualCutRangesJson = "[]"
+            ManualCutRangesJson = "[]",
+            AiCutRangesJson = "[]"
         };
     }
 
@@ -182,11 +217,13 @@ public sealed class IndexModel : PageModel
         public double PauseSpeedMultiplier { get; set; }
 
         public string ManualCutRangesJson { get; set; } = "[]";
+
+        public string AiCutRangesJson { get; set; } = "[]";
     }
 
-    private static IReadOnlyList<SilenceInterval>? ParseManualCutRanges(string? manualCutRangesJson)
+    private static IReadOnlyList<SilenceInterval>? ParseCutRanges(string? cutRangesJson)
     {
-        if (string.IsNullOrWhiteSpace(manualCutRangesJson))
+        if (string.IsNullOrWhiteSpace(cutRangesJson))
         {
             return [];
         }
@@ -194,7 +231,7 @@ public sealed class IndexModel : PageModel
         try
         {
             var ranges = JsonSerializer.Deserialize<List<ManualCutRangePayload>>(
-                manualCutRangesJson,
+                cutRangesJson,
                 new JsonSerializerOptions
                 {
                     PropertyNameCaseInsensitive = true
@@ -216,6 +253,19 @@ public sealed class IndexModel : PageModel
         {
             return null;
         }
+    }
+
+    private static double? TryParseNoiseThreshold(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var normalized = value.Trim().Replace("dB", string.Empty, StringComparison.OrdinalIgnoreCase);
+        return double.TryParse(normalized, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
     }
 
     private sealed record ManualCutRangePayload(double StartSeconds, double EndSeconds);

@@ -36,7 +36,7 @@ public sealed class VideoProcessingService
         double crossfadeMilliseconds,
         int videoCrossfadeFrames,
         double pauseSpeedMultiplier,
-        IReadOnlyList<SilenceInterval> manualCutRanges,
+        IReadOnlyList<SilenceInterval> explicitCutRanges,
         CancellationToken cancellationToken)
     {
         var health = await _ffmpegService.GetHealthStatusAsync(cancellationToken);
@@ -94,7 +94,7 @@ public sealed class VideoProcessingService
                     uploadPath,
                     cancellationToken);
 
-            var normalizedManualCutRanges = _cutPlanBuilder.Normalize(analysis.DurationSeconds, manualCutRanges);
+            var normalizedExplicitCutRanges = _cutPlanBuilder.Normalize(analysis.DurationSeconds, explicitCutRanges);
             var normalizedSilenceRanges = _cutPlanBuilder.Normalize(analysis.DurationSeconds, analysis.SilenceIntervals);
             var cutHandleSeconds = Math.Max(0, cutHandleMilliseconds) / 1000d;
             var handledSilenceRanges = _cutPlanBuilder.ApplyCutHandles(normalizedSilenceRanges, cutHandleSeconds);
@@ -102,17 +102,17 @@ public sealed class VideoProcessingService
             var cutPlan = useSilenceProcessing
                 ? _cutPlanBuilder.Build(
                     analysis.DurationSeconds,
-                    normalizedManualCutRanges,
+                    normalizedExplicitCutRanges,
                     _options.MinimumKeepSegmentSeconds)
                 : _cutPlanBuilder.Build(
                     analysis.DurationSeconds,
-                    handledSilenceRanges.Concat(normalizedManualCutRanges).ToList(),
+                    handledSilenceRanges.Concat(normalizedExplicitCutRanges).ToList(),
                     _options.MinimumKeepSegmentSeconds);
             var renderSegments = useSilenceProcessing
                 ? _cutPlanBuilder.BuildRenderSegments(
                     analysis.DurationSeconds,
                     handledSilenceRanges,
-                    normalizedManualCutRanges,
+                    normalizedExplicitCutRanges,
                     _options.MinimumKeepSegmentSeconds,
                     pauseSpeedMultiplier,
                     retainedSilenceSeconds)
@@ -130,8 +130,8 @@ public sealed class VideoProcessingService
                 var passthroughOutputPath = _workspaceService.CreateOutputPath(video.FileName, useMp4Extension: false);
                 File.Copy(uploadPath, passthroughOutputPath, overwrite: true);
 
-                var passthroughMessage = manualCutRanges.Count > 0
-                    ? "No valid silence or manual cut ranges were left after normalization, so the original file was copied as-is."
+                var passthroughMessage = explicitCutRanges.Count > 0
+                    ? "No valid silence or manual/AI cut ranges were left after normalization, so the original file was copied as-is."
                     : automaticSilenceEnabled
                         ? "No silence matched the current thresholds, so the original file was copied as-is."
                         : "Automatic silence detection is off, so the original file was copied as-is.";
@@ -151,7 +151,7 @@ public sealed class VideoProcessingService
             }
 
             if (useSilenceProcessing &&
-                normalizedManualCutRanges.Count == 0 &&
+                normalizedExplicitCutRanges.Count == 0 &&
                 processedSilenceSegmentCount == 0)
             {
                 var passthroughOutputPath = _workspaceService.CreateOutputPath(video.FileName, useMp4Extension: false);
@@ -188,7 +188,7 @@ public sealed class VideoProcessingService
                 analysis.FrameRate,
                 cancellationToken);
 
-            var successMessage = BuildSuccessMessage(manualCutRanges.Count, pauseSpeedMultiplier, retainedSilenceSeconds);
+            var successMessage = BuildSuccessMessage(explicitCutRanges.Count, pauseSpeedMultiplier, retainedSilenceSeconds);
 
             var outputDurationSeconds = Math.Max(0, renderSegments.Sum(segment => segment.OutputDurationSeconds) - appliedCrossfadeSeconds);
             var removedDurationSeconds = Math.Max(0, cutPlan.SourceDurationSeconds - outputDurationSeconds);
@@ -204,7 +204,7 @@ public sealed class VideoProcessingService
                 OutputDurationSeconds: outputDurationSeconds,
                 RemovedDurationSeconds: removedDurationSeconds,
                 RemovedSegmentsCount: useSilenceProcessing
-                    ? normalizedManualCutRanges.Count + processedSilenceSegmentCount
+                    ? normalizedExplicitCutRanges.Count + processedSilenceSegmentCount
                     : cutPlan.RemovedSegments.Count,
                 CutsApplied: true);
         }
@@ -232,33 +232,33 @@ public sealed class VideoProcessingService
     }
 
     private static string BuildSuccessMessage(
-        int manualCutCount,
+        int explicitCutCount,
         double pauseSpeedMultiplier,
         double retainedSilenceSeconds)
     {
         if (pauseSpeedMultiplier > 1 && retainedSilenceSeconds > 0)
         {
-            return manualCutCount > 0
-                ? $"Video processed successfully with {pauseSpeedMultiplier:0.0}x pause compression, {retainedSilenceSeconds:0.##} s kept pauses, and manual cut markers."
+            return explicitCutCount > 0
+                ? $"Video processed successfully with {pauseSpeedMultiplier:0.0}x pause compression, {retainedSilenceSeconds:0.##} s kept pauses, and manual/AI cut ranges."
                 : $"Video processed successfully with {pauseSpeedMultiplier:0.0}x pause compression and {retainedSilenceSeconds:0.##} s kept pauses.";
         }
 
         if (pauseSpeedMultiplier > 1)
         {
-            return manualCutCount > 0
-                ? $"Video processed successfully with {pauseSpeedMultiplier:0.0}x pause compression and manual cut markers."
+            return explicitCutCount > 0
+                ? $"Video processed successfully with {pauseSpeedMultiplier:0.0}x pause compression and manual/AI cut ranges."
                 : $"Video processed successfully with {pauseSpeedMultiplier:0.0}x pause compression.";
         }
 
         if (retainedSilenceSeconds > 0)
         {
-            return manualCutCount > 0
-                ? $"Video processed successfully with {retainedSilenceSeconds:0.##} s kept pauses and manual cut markers."
+            return explicitCutCount > 0
+                ? $"Video processed successfully with {retainedSilenceSeconds:0.##} s kept pauses and manual/AI cut ranges."
                 : $"Video processed successfully with {retainedSilenceSeconds:0.##} s kept pauses.";
         }
 
-        return manualCutCount > 0
-            ? "Video processed successfully with manual cut markers."
+        return explicitCutCount > 0
+            ? "Video processed successfully with manual/AI cut ranges."
             : "Video processed successfully.";
     }
 }

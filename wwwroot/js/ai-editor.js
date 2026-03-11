@@ -8,11 +8,13 @@
   const silenceSlider = form.querySelector("[data-silence-slider]");
   const apiKeyInput = form.querySelector("[data-ai-api-key]");
   const modelSelect = form.querySelector("[data-ai-model]");
+  const aiEnabledToggle = form.querySelector("[data-ai-enabled]");
   const analyzeButton = form.querySelector("[data-ai-analyze]");
   const analyzeLabel = form.querySelector("[data-ai-analyze-label]");
   const spinner = form.querySelector(".ai-analysis-spinner");
   const clearButton = form.querySelector("[data-ai-clear]");
   const status = form.querySelector("[data-ai-status]");
+  const aiCutRangesInput = form.querySelector("[data-ai-cut-ranges]");
   const waveformPanel = form.querySelector("[data-waveform-panel]");
   const waveformStage = form.querySelector("[data-waveform-stage]");
   const aiOverlay = form.querySelector("[data-ai-waveform-overlay]");
@@ -22,10 +24,12 @@
     !(fileInput instanceof HTMLInputElement) ||
     !(apiKeyInput instanceof HTMLInputElement) ||
     !(modelSelect instanceof HTMLSelectElement) ||
+    !(aiEnabledToggle instanceof HTMLInputElement) ||
     !(analyzeButton instanceof HTMLButtonElement) ||
     !(analyzeLabel instanceof HTMLElement) ||
     !(clearButton instanceof HTMLButtonElement) ||
     !(status instanceof HTMLElement) ||
+    !(aiCutRangesInput instanceof HTMLInputElement) ||
     !(waveformPanel instanceof HTMLElement) ||
     !(waveformStage instanceof HTMLElement) ||
     !(aiOverlay instanceof HTMLElement) ||
@@ -38,10 +42,13 @@
   const hasDefaultServerKey = aiPanel.dataset.aiDefaultKeyAvailable === "true";
   const defaultServerModel = aiPanel.dataset.aiDefaultModel || "whisper-1";
   let aiRanges = [];
+  let aiSourceRanges = [];
   let analysisDurationSeconds = 0;
   let waveformDurationSeconds = 0;
+  let acousticSilenceRanges = [];
   let isWaveformReady = false;
   let isAnalyzing = false;
+  let lastPublishedRangesKey = "";
 
   const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
   const getRenderDurationSeconds = () => waveformDurationSeconds > 0 ? waveformDurationSeconds : analysisDurationSeconds;
@@ -60,8 +67,21 @@
     status.classList.toggle("is-error", isError && !hidden);
   };
 
+  const isAiEnabled = () => aiEnabledToggle.checked;
+
+  const syncToggleLabel = () => {
+    const label = aiEnabledToggle.parentElement?.querySelector(".field-toggle__label");
+    if (label instanceof HTMLElement) {
+      label.textContent = aiEnabledToggle.checked ? "On" : "Off";
+    }
+  };
+
   const updateAnalyzeButtonState = () => {
-    analyzeButton.disabled = isAnalyzing || !fileInput.files?.[0] || (!apiKeyInput.value.trim() && !hasDefaultServerKey);
+    analyzeButton.disabled =
+      !isAiEnabled() ||
+      isAnalyzing ||
+      !fileInput.files?.[0] ||
+      (!apiKeyInput.value.trim() && !hasDefaultServerKey);
   };
 
   const setAnalyzingState = (value) => {
@@ -71,10 +91,123 @@
     updateAnalyzeButtonState();
   };
 
+  const normalizeRanges = (ranges) =>
+    Array.isArray(ranges)
+      ? ranges
+          .map((range) => ({
+            startSeconds: Number(range.startSeconds),
+            endSeconds: Number(range.endSeconds),
+          }))
+          .filter((range) =>
+            Number.isFinite(range.startSeconds) &&
+            Number.isFinite(range.endSeconds) &&
+            range.endSeconds > range.startSeconds)
+          .sort((left, right) => left.startSeconds - right.startSeconds || left.endSeconds - right.endSeconds)
+      : [];
+
+  const normalizeMergedRanges = (ranges) => normalizeRanges(ranges).reduce((merged, currentRange) => {
+    const previousRange = merged[merged.length - 1];
+    if (!previousRange || currentRange.startSeconds > previousRange.endSeconds) {
+      merged.push({ ...currentRange });
+      return merged;
+    }
+
+    previousRange.endSeconds = Math.max(previousRange.endSeconds, currentRange.endSeconds);
+    return merged;
+  }, []);
+
+  const snapRangesToAcousticSilence = (sourceRanges, allowedRanges) => {
+    if (!sourceRanges.length || !allowedRanges.length) {
+      return [];
+    }
+
+    const snappedRanges = [];
+    let allowedIndex = 0;
+
+    sourceRanges.forEach((sourceRange) => {
+      while (allowedIndex < allowedRanges.length && allowedRanges[allowedIndex].endSeconds <= sourceRange.startSeconds) {
+        allowedIndex += 1;
+      }
+
+      let currentAllowedIndex = allowedIndex;
+      while (currentAllowedIndex < allowedRanges.length && allowedRanges[currentAllowedIndex].startSeconds < sourceRange.endSeconds) {
+        const allowedRange = allowedRanges[currentAllowedIndex];
+        if (allowedRange.endSeconds > sourceRange.startSeconds) {
+          snappedRanges.push({
+            startSeconds: allowedRange.startSeconds,
+            endSeconds: allowedRange.endSeconds,
+          });
+        }
+
+        if (allowedRange.endSeconds >= sourceRange.endSeconds) {
+          break;
+        }
+
+        currentAllowedIndex += 1;
+      }
+    });
+
+    return normalizeMergedRanges(snappedRanges);
+  };
+
+  const applyWaveformFilterToAiRanges = () => {
+    aiRanges = isWaveformReady
+      ? snapRangesToAcousticSilence(aiSourceRanges, acousticSilenceRanges)
+      : [...aiSourceRanges];
+  };
+
+  const syncAiCutRangesInput = () => {
+    aiCutRangesInput.value = JSON.stringify(aiRanges.map((range) => ({
+      startSeconds: Number(range.startSeconds.toFixed(3)),
+      endSeconds: Number(range.endSeconds.toFixed(3)),
+    })));
+  };
+
+  const emitAiRangesChanged = ({ force = false } = {}) => {
+    syncAiCutRangesInput();
+    const nextKey = aiCutRangesInput.value;
+    if (!force && nextKey === lastPublishedRangesKey) {
+      return;
+    }
+
+    lastPublishedRangesKey = nextKey;
+    form.dispatchEvent(new CustomEvent("strippr:ai-ranges-changed", {
+      detail: {
+        ranges: aiRanges.map((range) => ({
+          startSeconds: range.startSeconds,
+          endSeconds: range.endSeconds,
+        })),
+      },
+    }));
+  };
+
+  const buildAnalysisStatusMessage = (serverMessage) => {
+    if (!aiSourceRanges.length) {
+      return serverMessage || "AI found no transcript gaps matching the current minimum silence.";
+    }
+
+    if (!isWaveformReady) {
+      return serverMessage || "AI analysis completed.";
+    }
+
+    if (!aiRanges.length) {
+      return "AI found transcript gaps, but none of them were actually quiet in the waveform.";
+    }
+
+    if (aiRanges.length === aiSourceRanges.length &&
+        aiRanges.every((range, index) =>
+          Math.abs(range.startSeconds - aiSourceRanges[index].startSeconds) < 0.001 &&
+          Math.abs(range.endSeconds - aiSourceRanges[index].endSeconds) < 0.001)) {
+      return serverMessage || "AI analysis completed.";
+    }
+
+    return `AI found ${aiSourceRanges.length} transcript gap ${aiSourceRanges.length === 1 ? "range" : "ranges"} and kept ${aiRanges.length} acoustically quiet ${aiRanges.length === 1 ? "range" : "ranges"}.`;
+  };
+
   const renderAiOverlay = () => {
-    if (!aiRanges.length || waveformPanel.hidden || !isWaveformReady) {
+    if (!isAiEnabled() || !aiRanges.length || waveformPanel.hidden || !isWaveformReady) {
       aiOverlay.innerHTML = "";
-      clearButton.hidden = aiRanges.length === 0;
+      clearButton.hidden = !isAiEnabled() || aiRanges.length === 0;
       return;
     }
 
@@ -103,12 +236,28 @@
 
   const clearAiRanges = ({ keepStatus = false } = {}) => {
     aiRanges = [];
+    aiSourceRanges = [];
     analysisDurationSeconds = 0;
     aiOverlay.innerHTML = "";
+    emitAiRangesChanged({ force: true });
     clearButton.hidden = true;
     if (!keepStatus) {
       setStatus("", { hidden: true });
     }
+  };
+
+  const syncAiBypassState = () => {
+    syncToggleLabel();
+    aiPanel.classList.toggle("is-bypassed", !isAiEnabled());
+    apiKeyInput.disabled = !isAiEnabled();
+    modelSelect.disabled = !isAiEnabled();
+    clearButton.disabled = !isAiEnabled();
+
+    if (!isAiEnabled()) {
+      clearAiRanges();
+    }
+
+    updateAnalyzeButtonState();
   };
 
   const persistSettings = () => {
@@ -171,21 +320,17 @@
         throw new Error(payload?.message || "AI analysis failed.");
       }
 
-      aiRanges = Array.isArray(payload.ranges)
-        ? payload.ranges
-            .map((range) => ({
-              startSeconds: Number(range.startSeconds),
-              endSeconds: Number(range.endSeconds),
-            }))
-            .filter((range) =>
-              Number.isFinite(range.startSeconds) &&
-              Number.isFinite(range.endSeconds) &&
-              range.endSeconds > range.startSeconds)
-        : [];
-      analysisDurationSeconds = Number(payload.durationSeconds) || 0;
+      if (!isAiEnabled()) {
+        clearAiRanges();
+        return;
+      }
 
+      aiSourceRanges = normalizeRanges(payload.ranges);
+      analysisDurationSeconds = Number(payload.durationSeconds) || 0;
+      applyWaveformFilterToAiRanges();
+      emitAiRangesChanged({ force: true });
       renderAiOverlay();
-      setStatus(payload.message || "AI analysis completed.");
+      setStatus(buildAnalysisStatusMessage(payload.message));
     } catch (error) {
       clearAiRanges({ keepStatus: true });
       setStatus(error instanceof Error ? error.message : "AI analysis failed.", { isError: true });
@@ -195,6 +340,7 @@
   };
 
   restoreSettings();
+  syncAiBypassState();
   updateAnalyzeButtonState();
   clearButton.hidden = true;
 
@@ -204,6 +350,10 @@
 
   clearButton.addEventListener("click", () => {
     clearAiRanges();
+  });
+
+  aiEnabledToggle.addEventListener("change", () => {
+    syncAiBypassState();
   });
 
   apiKeyInput.addEventListener("input", () => {
@@ -218,10 +368,20 @@
     updateAnalyzeButtonState();
   });
 
+  form.addEventListener("strippr:editor-reset", () => {
+    aiEnabledToggle.checked = false;
+    syncAiBypassState();
+    clearAiRanges();
+    updateAnalyzeButtonState();
+  });
+
   form.addEventListener("strippr:waveform-state", (event) => {
     const detail = event.detail || {};
     waveformDurationSeconds = Number(detail.durationSeconds) || 0;
+    acousticSilenceRanges = normalizeRanges(detail.acousticSilenceRanges);
     isWaveformReady = Boolean(detail.ready) && !Boolean(detail.hidden);
+    applyWaveformFilterToAiRanges();
+    emitAiRangesChanged();
 
     if (!isWaveformReady) {
       aiOverlay.innerHTML = "";

@@ -44,6 +44,7 @@
   const pauseSpeedField = form.querySelector("[data-setting-field='pause-speed']");
   const validationSummary = form.querySelector(".validation-summary");
   let resultPanel = document.querySelector("[data-result-panel]");
+  const emptyResultPanelTemplate = document.querySelector("[data-empty-result-panel-template]");
   const submitButton = form.querySelector("button[type='submit']");
   const waveformPanel = form.querySelector("[data-waveform-panel]");
   const waveformViewport = form.querySelector("[data-waveform-viewport]");
@@ -59,9 +60,11 @@
   const playAudioButton = form.querySelector("[data-waveform-play]");
   const playResultButton = form.querySelector("[data-waveform-play-result]");
   const manualCutRangesInput = form.querySelector("[data-manual-cut-ranges]");
+  const aiCutRangesInput = form.querySelector("[data-ai-cut-ranges]");
   const markerSummary = form.querySelector("[data-marker-summary]");
   const markerList = form.querySelector("[data-marker-list]");
   const addMarkerButtons = Array.from(form.querySelectorAll("[data-add-marker]"));
+  const disableAllButton = form.querySelector("[data-disable-all]");
   const resetAllButton = form.querySelector("[data-reset-all]");
 
   if (!processingPanel || !processingFill || !processingLabel || !processingPercent || !processingBar || !fileInput || !submitButton) {
@@ -80,6 +83,7 @@
   let selectedMarkerId = null;
   let dragMarkerId = null;
   let manualMarkers = [];
+  let aiCutRanges = [];
   let decodedAudioBuffer = null;
   let previewAudio = null;
   let previewAudioUrl = null;
@@ -189,22 +193,22 @@
   };
 
   const captureDefaultState = () => ({
-    noiseSlider: noiseSlider ? noiseSlider.value : null,
-    noiseToggle: noiseToggle instanceof HTMLInputElement ? noiseToggle.checked : true,
-    silenceSlider: silenceSlider ? silenceSlider.value : null,
-    silenceToggle: silenceToggle instanceof HTMLInputElement ? silenceToggle.checked : true,
-    retainedSilenceSlider: retainedSilenceSlider ? retainedSilenceSlider.value : null,
-    retainedSilenceToggle: retainedSilenceToggle instanceof HTMLInputElement ? retainedSilenceToggle.checked : true,
-    cutHandleSlider: cutHandleSlider ? cutHandleSlider.value : null,
-    cutHandleToggle: cutHandleToggle instanceof HTMLInputElement ? cutHandleToggle.checked : true,
-    crossfadeSlider: crossfadeSlider ? crossfadeSlider.value : null,
-    crossfadeToggle: crossfadeToggle instanceof HTMLInputElement ? crossfadeToggle.checked : true,
-    videoCrossfadeSlider: videoCrossfadeSlider ? videoCrossfadeSlider.value : null,
-    videoCrossfadeToggle: videoCrossfadeToggle instanceof HTMLInputElement ? videoCrossfadeToggle.checked : true,
-    pauseSpeedSlider: pauseSpeedSlider ? pauseSpeedSlider.value : null,
-    pauseSpeedToggle: pauseSpeedToggle instanceof HTMLInputElement ? pauseSpeedToggle.checked : true,
-    waveformVerticalZoom: waveformVerticalZoom ? waveformVerticalZoom.value : "1",
-    waveformHorizontalZoom: waveformHorizontalZoom ? waveformHorizontalZoom.value : "1",
+    noiseSlider: form.dataset.defaultNoiseThreshold || "-30",
+    noiseToggle: false,
+    silenceSlider: form.dataset.defaultMinimumSilence || "0.5",
+    silenceToggle: false,
+    retainedSilenceSlider: form.dataset.defaultRetainedSilence || "0",
+    retainedSilenceToggle: false,
+    cutHandleSlider: form.dataset.defaultCutHandles || "120",
+    cutHandleToggle: false,
+    crossfadeSlider: form.dataset.defaultCrossfade || "80",
+    crossfadeToggle: false,
+    videoCrossfadeSlider: form.dataset.defaultVideoCrossfade || "0",
+    videoCrossfadeToggle: false,
+    pauseSpeedSlider: form.dataset.defaultPauseSpeed || "1",
+    pauseSpeedToggle: false,
+    waveformVerticalZoom: "1",
+    waveformHorizontalZoom: "1",
   });
 
   const clearWaveformCanvas = () => {
@@ -256,6 +260,20 @@
     }
   };
 
+  const resetResultPanel = () => {
+    if (!(emptyResultPanelTemplate instanceof HTMLTemplateElement) || !(resultPanel instanceof HTMLElement)) {
+      return;
+    }
+
+    const nextResultPanel = emptyResultPanelTemplate.content.firstElementChild?.cloneNode(true);
+    if (!(nextResultPanel instanceof HTMLElement)) {
+      return;
+    }
+
+    resultPanel.replaceWith(nextResultPanel);
+    resultPanel = nextResultPanel;
+  };
+
   const isToggleEnabled = (toggle) => !(toggle instanceof HTMLInputElement) || toggle.checked;
   const isNoiseThresholdEnabled = () => isToggleEnabled(noiseToggle);
   const isMinimumSilenceEnabled = () => isToggleEnabled(silenceToggle);
@@ -299,14 +317,33 @@
       pauseSpeedToggle,
     ].forEach(syncToggleLabel);
 
-    const automaticSilenceEnabled = isAutomaticSilenceEnabled();
-    syncFieldState(noiseField, noiseSlider, automaticSilenceEnabled);
-    syncFieldState(silenceField, silenceSlider, automaticSilenceEnabled);
+    syncFieldState(noiseField, noiseSlider, isNoiseThresholdEnabled());
+    syncFieldState(silenceField, silenceSlider, isMinimumSilenceEnabled());
     syncFieldState(retainedSilenceField, retainedSilenceSlider, isRetainedSilenceEnabled());
     syncFieldState(cutHandleField, cutHandleSlider, isCutHandleEnabled());
     syncFieldState(crossfadeField, crossfadeSlider, isCrossfadeEnabled());
     syncFieldState(videoCrossfadeField, videoCrossfadeSlider, isVideoCrossfadeEnabled());
     syncFieldState(pauseSpeedField, pauseSpeedSlider, isPauseSpeedEnabled());
+  };
+
+  const disableAllProcessingSettings = () => {
+    [
+      noiseToggle,
+      silenceToggle,
+      retainedSilenceToggle,
+      cutHandleToggle,
+      crossfadeToggle,
+      videoCrossfadeToggle,
+      pauseSpeedToggle,
+    ].forEach((toggle) => {
+      if (toggle instanceof HTMLInputElement) {
+        toggle.checked = false;
+      }
+    });
+
+    stopResultPreview();
+    syncAllProcessingControls();
+    drawWaveform();
   };
 
   const updateThresholdReadout = () => {
@@ -324,10 +361,15 @@
   };
 
   const emitWaveformStateChanged = () => {
+    const acousticSilenceRanges = waveformDurationSeconds > 0
+      ? detectSilenceRanges({ ignoreAutomaticBypass: true })
+      : [];
+
     form.dispatchEvent(new CustomEvent("strippr:waveform-state", {
       detail: {
         durationSeconds: waveformDurationSeconds,
         stageWidth: waveformStage ? waveformStage.clientWidth : 0,
+        acousticSilenceRanges,
         ready: Boolean(waveformPeaks && waveformDurationSeconds > 0),
         hidden: Boolean(waveformPanel?.hidden),
       },
@@ -381,7 +423,7 @@
     noiseInput.value = `${sliderValue.toFixed(0)}dB`;
 
     if (noiseDisplay) {
-      noiseDisplay.textContent = isAutomaticSilenceEnabled() ? `${sliderValue.toFixed(0)} dB` : "Off";
+      noiseDisplay.textContent = isNoiseThresholdEnabled() ? `${sliderValue.toFixed(0)} dB` : "Off";
     }
 
     syncSliderVisual(noiseSlider, noiseDisplay);
@@ -394,7 +436,7 @@
 
     const sliderValue = Number.parseFloat(silenceSlider.value);
     if (silenceDisplay) {
-      silenceDisplay.textContent = isAutomaticSilenceEnabled() ? `${sliderValue.toFixed(1)} s` : "Off";
+      silenceDisplay.textContent = isMinimumSilenceEnabled() ? `${sliderValue.toFixed(1)} s` : "Off";
     }
 
     syncSliderVisual(silenceSlider, silenceDisplay);
@@ -731,6 +773,11 @@
     return merged;
   };
 
+  const serializeRanges = (ranges) => JSON.stringify(ranges.map((range) => ({
+    startSeconds: Number(range.startSeconds.toFixed(3)),
+    endSeconds: Number(range.endSeconds.toFixed(3)),
+  })));
+
   const buildKeepSegments = (durationSeconds, removedRanges) => {
     const keepSegments = [];
     let cursor = 0;
@@ -798,16 +845,16 @@
     return result;
   };
 
-  const detectSilenceRanges = () => {
-    if (!decodedAudioBuffer || !isAutomaticSilenceEnabled()) {
-      detectedSilenceCacheKey = `${waveformToken}|auto-off`;
+  const detectSilenceRanges = ({ ignoreAutomaticBypass = false } = {}) => {
+    if (!decodedAudioBuffer || (!ignoreAutomaticBypass && !isAutomaticSilenceEnabled())) {
+      detectedSilenceCacheKey = `${waveformToken}|${ignoreAutomaticBypass ? "ignore-bypass" : "respect-bypass"}|auto-off`;
       detectedSilenceCache = [];
       return [];
     }
 
     const thresholdDb = parseThresholdDb();
     const minimumSilenceSeconds = getMinimumSilenceSeconds();
-    const cacheKey = `${waveformToken}|auto-on|${thresholdDb ?? "invalid"}|${minimumSilenceSeconds.toFixed(3)}`;
+    const cacheKey = `${waveformToken}|${ignoreAutomaticBypass ? "ignore-bypass" : "respect-bypass"}|auto-on|${thresholdDb ?? "invalid"}|${minimumSilenceSeconds.toFixed(3)}`;
     if (detectedSilenceCacheKey === cacheKey) {
       return detectedSilenceCache;
     }
@@ -964,13 +1011,14 @@
     const retainedSilenceSeconds = getRetainedSilenceSeconds();
     const cutHandleSeconds = getCutHandleSeconds();
     const manualRanges = normalizeRemovedRanges(durationSeconds, buildManualCutRanges().ranges);
+    const explicitRanges = normalizeRemovedRanges(durationSeconds, manualRanges.concat(aiCutRanges));
     const silenceRanges = normalizeRemovedRanges(
       durationSeconds,
       applyCutHandles(detectSilenceRanges(), cutHandleSeconds),
     );
 
     if (pauseSpeedMultiplier <= 1 && retainedSilenceSeconds <= 0) {
-      const removedRanges = normalizeRemovedRanges(durationSeconds, silenceRanges.concat(manualRanges));
+      const removedRanges = normalizeRemovedRanges(durationSeconds, silenceRanges.concat(explicitRanges));
       return buildKeepSegments(durationSeconds, removedRanges).map((segment, index) => ({
         ...segment,
         playbackSpeed: 1,
@@ -979,8 +1027,8 @@
       }));
     }
 
-    const compressibleSilences = subtractRanges(silenceRanges, manualRanges);
-    const events = manualRanges
+    const compressibleSilences = subtractRanges(silenceRanges, explicitRanges);
+    const events = explicitRanges
       .map((range) => ({ ...range, isHardCut: true }))
       .concat(compressibleSilences.map((range) => ({ ...range, isHardCut: false })))
       .sort((left, right) => left.startSeconds - right.startSeconds || left.endSeconds - right.endSeconds);
@@ -1056,7 +1104,7 @@
     };
   };
 
-  const buildAutomaticEditRanges = (manualRanges) => {
+  const buildAutomaticEditRanges = (explicitRanges) => {
     if (!decodedAudioBuffer) {
       return [];
     }
@@ -1069,7 +1117,7 @@
       durationSeconds,
       applyCutHandles(detectSilenceRanges(), cutHandleSeconds),
     );
-    const automaticRanges = subtractRanges(silenceRanges, manualRanges);
+    const automaticRanges = subtractRanges(silenceRanges, explicitRanges);
     const isHardCut = pauseSpeedMultiplier <= 1 && retainedSilenceSeconds <= 0;
 
     return automaticRanges.map((range) => {
@@ -1095,7 +1143,11 @@
   };
 
   const buildWaveformCompressionPreviewRanges = (manualRanges) => {
-    const sourceRanges = buildAutomaticEditRanges(manualRanges);
+    const explicitRanges = normalizeRemovedRanges(
+      waveformDurationSeconds,
+      manualRanges.concat(aiCutRanges),
+    );
+    const sourceRanges = buildAutomaticEditRanges(explicitRanges);
 
     return sourceRanges.map((range) => {
       const sourceDurationSeconds = Math.max(0, range.endSeconds - range.startSeconds);
@@ -1311,12 +1363,28 @@
     }
   };
 
+  const setAiCutRanges = (ranges) => {
+    const nextAiCutRanges = waveformDurationSeconds > 0
+      ? normalizeRemovedRanges(waveformDurationSeconds, ranges)
+      : [];
+    const previousKey = serializeRanges(aiCutRanges);
+    const nextKey = serializeRanges(nextAiCutRanges);
+    aiCutRanges = nextAiCutRanges;
+
+    if (aiCutRangesInput instanceof HTMLInputElement) {
+      aiCutRangesInput.value = nextKey;
+    }
+
+    return previousKey !== nextKey;
+  };
+
   const resetEditor = () => {
     waveformToken += 1;
     detectedSilenceCacheKey = "";
     detectedSilenceCache = [];
     disposePreviewAudio();
     resetManualCuts();
+    setAiCutRanges([]);
     waveformDurationSeconds = 0;
     waveformPeaks = null;
     playheadSeconds = null;
@@ -1424,8 +1492,10 @@
       validationSummary.innerHTML = "";
     }
 
+    resetResultPanel();
     syncPlaybackButtons();
     emitWaveformStateChanged();
+    form.dispatchEvent(new CustomEvent("strippr:editor-reset"));
   };
 
   const getInsertionSeconds = () => {
@@ -2160,7 +2230,20 @@
 
   fileInput.addEventListener("change", () => {
     syncSelectedFileName();
+    resetResultPanel();
     analyzeSelectedFile();
+  });
+
+  form.addEventListener("strippr:ai-ranges-changed", (event) => {
+    const detail = event.detail || {};
+    const nextAiRanges = Array.isArray(detail.ranges) ? detail.ranges : [];
+    const didChange = setAiCutRanges(nextAiRanges);
+    if (!didChange) {
+      return;
+    }
+
+    stopResultPreview();
+    drawWaveform();
   });
 
   if (pickFileButton instanceof HTMLButtonElement) {
@@ -2172,6 +2255,12 @@
   if (resetAllButton instanceof HTMLButtonElement) {
     resetAllButton.addEventListener("click", () => {
       resetEditor();
+    });
+  }
+
+  if (disableAllButton instanceof HTMLButtonElement) {
+    disableAllButton.addEventListener("click", () => {
+      disableAllProcessingSettings();
     });
   }
 

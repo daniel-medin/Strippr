@@ -30,10 +30,20 @@
             <p class="panel-kicker">Timeline</p>
             <h2>Edit one clip</h2>
         </div>
-        <span class="panel-tag">Full-width workspace</span>
     </div>
 
-    <form method="post" enctype="multipart/form-data" class="strippr-form" data-processing-form>
+    <form
+        method="post"
+        enctype="multipart/form-data"
+        class="strippr-form"
+        data-processing-form
+        data-default-noise-threshold="@Model.DefaultNoiseThresholdDbText"
+        data-default-minimum-silence="@Model.DefaultMinimumSilenceSecondsText"
+        data-default-retained-silence="@Model.DefaultRetainedSilenceSecondsText"
+        data-default-cut-handles="@Model.DefaultCutHandleMillisecondsText"
+        data-default-crossfade="@Model.DefaultCrossfadeMillisecondsText"
+        data-default-video-crossfade="@Model.DefaultVideoCrossfadeFramesText"
+        data-default-pause-speed="@Model.DefaultPauseSpeedMultiplierText">
         <div asp-validation-summary="ModelOnly" class="validation-summary"></div>
 
         <label class="dropzone" asp-for="Input.Video">
@@ -186,6 +196,7 @@
         </div>
 
         <input asp-for="Input.ManualCutRangesJson" type="hidden" data-manual-cut-ranges />
+        <input asp-for="Input.AiCutRangesJson" type="hidden" data-ai-cut-ranges />
 
         <section class="waveform-panel" data-waveform-panel hidden>
             <div class="waveform-head">
@@ -232,7 +243,13 @@
                         <p class="panel-kicker">AI overlay</p>
                         <strong>Transcript gap detection</strong>
                     </div>
-                    <span class="ai-analysis-tag">@(Model.HasConfiguredOpenAiApiKey ? "Local key ready" : "Overlay only")</span>
+                    <div class="ai-analysis-headline">
+                        <span class="ai-analysis-tag">@(Model.HasConfiguredOpenAiApiKey ? "Local key ready" : "Overlay only")</span>
+                        <label class="field-toggle ai-analysis-toggle">
+                            <input class="field-toggle__input" type="checkbox" data-ai-enabled />
+                            <span class="field-toggle__label">On</span>
+                        </label>
+                    </div>
                 </div>
                 <div class="ai-analysis-grid">
                     <label class="ai-analysis-field">
@@ -261,11 +278,11 @@
                 <p class="ai-analysis-help">
                     @if (Model.HasConfiguredOpenAiApiKey)
                     {
-                        <text>Uses OpenAI transcript timing gaps to suggest silent sections. A local key is configured on this machine, so you can leave the field blank or override it for one run. This overlay currently uses timestamp-capable transcription models only. AI ranges do not change manual cuts.</text>
+                        <text>Uses OpenAI transcript timing gaps, then trims them against the local waveform so non-silent audio does not get marked as silence. A local key is configured on this machine, so you can leave the field blank or override it for one run. This overlay currently uses timestamp-capable transcription models only. AI ranges do not change manual cuts.</text>
                     }
                     else
                     {
-                        <text>Uses OpenAI transcript timing gaps to suggest silent sections. The API key stays in this local app flow, Strippr does not save it, and this overlay currently uses timestamp-capable transcription models only. AI ranges do not change manual cuts.</text>
+                        <text>Uses OpenAI transcript timing gaps, then trims them against the local waveform so non-silent audio does not get marked as silence. The API key stays in this local app flow, Strippr does not save it, and this overlay currently uses timestamp-capable transcription models only. AI ranges do not change manual cuts.</text>
                     }
                 </p>
                 <p class="ai-analysis-status" data-ai-status hidden></p>
@@ -301,6 +318,9 @@
         <div class="form-actions">
             <button class="submit-button" type="submit" disabled="@(!Model.FfmpegAvailable)">
                 Process video
+            </button>
+            <button class="secondary-button" type="button" data-disable-all>
+                Turn off all
             </button>
             <button class="secondary-button" type="button" data-reset-all>
                 Reset all
@@ -383,6 +403,19 @@
         }
     }
 </section>
+
+<template data-empty-result-panel-template>
+    <section class="panel-card result-card-full" data-result-panel>
+        <div class="panel-head">
+            <div>
+                <p class="panel-kicker">Render output</p>
+                <h2>Latest export</h2>
+            </div>
+        </div>
+
+        <p class="empty-state">Run a file through the form to get a downloadable output here.</p>
+    </section>
+</template>
 
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
