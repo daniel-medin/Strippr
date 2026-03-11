@@ -57,7 +57,7 @@
                     </div>
                 </div>
                 <input asp-for="Input.NoiseThreshold" type="hidden" />
-                <input type="range" min="-60" max="0" step="1" value="-30" data-noise-slider />
+                <input class="knob-input" type="range" min="-60" max="0" step="1" value="-30" data-noise-slider />
                 <div class="slider-scale">
                     <span>-60 dB</span>
                     <span>0 dB</span>
@@ -72,7 +72,7 @@
                         <strong class="dial-readout" data-silence-display>0.5 s</strong>
                     </div>
                 </div>
-                <input asp-for="Input.MinimumSilenceSeconds" type="range" min="0.1" max="3" step="0.1" data-silence-slider />
+                <input class="knob-input" asp-for="Input.MinimumSilenceSeconds" type="range" min="0.1" max="3" step="0.1" data-silence-slider />
                 <div class="slider-scale">
                     <span>0.1 s</span>
                     <span>3.0 s</span>
@@ -87,7 +87,7 @@
                         <strong class="dial-readout" data-retained-silence-display>0.00 s</strong>
                     </div>
                 </div>
-                <input asp-for="Input.RetainedSilenceSeconds" type="range" min="0" max="1" step="0.05" data-retained-silence-slider />
+                <input class="knob-input" asp-for="Input.RetainedSilenceSeconds" type="range" min="0" max="1" step="0.05" data-retained-silence-slider />
                 <div class="slider-scale">
                     <span>0.00 s</span>
                     <span>1.00 s</span>
@@ -102,7 +102,7 @@
                         <strong class="dial-readout" data-cut-handle-display>120 ms</strong>
                     </div>
                 </div>
-                <input asp-for="Input.CutHandleMilliseconds" type="range" min="0" max="500" step="10" data-cut-handle-slider />
+                <input class="knob-input" asp-for="Input.CutHandleMilliseconds" type="range" min="0" max="500" step="10" data-cut-handle-slider />
                 <div class="slider-scale">
                     <span>0 ms</span>
                     <span>500 ms</span>
@@ -117,7 +117,7 @@
                         <strong class="dial-readout" data-crossfade-display>80 ms</strong>
                     </div>
                 </div>
-                <input asp-for="Input.CrossfadeMilliseconds" type="range" min="0" max="500" step="5" data-crossfade-slider />
+                <input class="knob-input" asp-for="Input.CrossfadeMilliseconds" type="range" min="0" max="500" step="5" data-crossfade-slider />
                 <div class="slider-scale">
                     <span>0 ms</span>
                     <span>500 ms</span>
@@ -132,7 +132,7 @@
                         <strong class="dial-readout" data-video-crossfade-display>0 fr</strong>
                     </div>
                 </div>
-                <input asp-for="Input.VideoCrossfadeFrames" type="range" min="0" max="48" step="1" data-video-crossfade-slider />
+                <input class="knob-input" asp-for="Input.VideoCrossfadeFrames" type="range" min="0" max="48" step="1" data-video-crossfade-slider />
                 <div class="slider-scale">
                     <span>0 fr</span>
                     <span>48 fr</span>
@@ -147,7 +147,7 @@
                         <strong class="dial-readout" data-pause-speed-display>1.0x</strong>
                     </div>
                 </div>
-                <input asp-for="Input.PauseSpeedMultiplier" type="range" min="1" max="10" step="0.1" data-pause-speed-slider />
+                <input class="knob-input" asp-for="Input.PauseSpeedMultiplier" type="range" min="1" max="10" step="0.1" data-pause-speed-slider />
                 <div class="slider-scale">
                     <span>1.0x</span>
                     <span>Cut -> compress</span>
@@ -170,16 +170,28 @@
             <div class="waveform-toolbar">
                 <label class="waveform-control waveform-control--zoom">
                     <span>Vertical zoom</span>
-                    <div class="waveform-control-row">
-                        <input type="range" min="1" max="6" step="0.1" value="1" data-waveform-vertical-zoom />
-                        <strong class="dial-readout dial-readout--small" data-waveform-vertical-display>1.0x</strong>
+                    <div class="ruler-slider" style="--min: 1; --val: 1; --max: 6">
+                        <input id="waveform-vertical-zoom" class="ruler-slider__input" type="range" min="1" max="6" step="0.1" value="1" list="waveform-vertical-zoom-scale" data-waveform-vertical-zoom />
+                        <output class="ruler-slider__output" for="waveform-vertical-zoom" data-waveform-vertical-display>1.0x</output>
+                        <datalist id="waveform-vertical-zoom-scale" class="ruler-slider__scale">
+                            @for (var tick = 1; tick <= 6; tick++)
+                            {
+                                <option value="@tick" label="@tick" style="--idx:@tick"></option>
+                            }
+                        </datalist>
                     </div>
                 </label>
                 <label class="waveform-control waveform-control--zoom">
                     <span>Horizontal zoom</span>
-                    <div class="waveform-control-row">
-                        <input type="range" min="1" max="12" step="0.5" value="1" data-waveform-horizontal-zoom />
-                        <strong class="dial-readout dial-readout--small" data-waveform-horizontal-display>1.0x</strong>
+                    <div class="ruler-slider" style="--min: 1; --val: 1; --max: 12">
+                        <input id="waveform-horizontal-zoom" class="ruler-slider__input" type="range" min="1" max="12" step="0.5" value="1" list="waveform-horizontal-zoom-scale" data-waveform-horizontal-zoom />
+                        <output class="ruler-slider__output" for="waveform-horizontal-zoom" data-waveform-horizontal-display>1.0x</output>
+                        <datalist id="waveform-horizontal-zoom-scale" class="ruler-slider__scale">
+                            @for (var tick = 1; tick <= 12; tick++)
+                            {
+                                <option value="@tick" label="@(tick == 12 || tick == 1 || tick % 2 == 0 ? tick : null)" style="--idx:@tick"></option>
+                            }
+                        </datalist>
                     </div>
                 </label>
             </div>

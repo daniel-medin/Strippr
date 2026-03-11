@@ -263,6 +263,16 @@
 
     if (slider instanceof HTMLInputElement) {
       slider.style.setProperty("--range-percent", `${(ratio * 100).toFixed(2)}%`);
+      slider.style.setProperty("--min", slider.min || "0");
+      slider.style.setProperty("--max", slider.max || "100");
+      slider.style.setProperty("--value", slider.value || "0");
+
+      const rulerSlider = slider.closest(".ruler-slider");
+      if (rulerSlider instanceof HTMLElement) {
+        rulerSlider.style.setProperty("--min", slider.min || "0");
+        rulerSlider.style.setProperty("--max", slider.max || "100");
+        rulerSlider.style.setProperty("--val", slider.value || "0");
+      }
     }
 
     if (display instanceof HTMLElement) {
@@ -1253,9 +1263,9 @@
 
     const centerY = cssHeight / 2;
     const drawableHalfHeight = ((cssHeight - 36) / 2) * verticalZoomValue;
-    context.fillStyle = "rgba(255, 249, 239, 0.95)";
+    context.fillStyle = "rgba(10, 10, 11, 1)";
     context.fillRect(0, 0, cssWidth, cssHeight);
-    context.strokeStyle = "rgba(32, 24, 19, 0.10)";
+    context.strokeStyle = "rgba(255, 255, 255, 0.08)";
     context.beginPath();
     context.moveTo(0, centerY);
     context.lineTo(cssWidth, centerY);
@@ -1265,7 +1275,7 @@
     if (thresholdDb !== null) {
       const amplitude = Math.max(0, Math.min(1, Math.pow(10, thresholdDb / 20)));
       const offset = amplitude * drawableHalfHeight;
-      context.strokeStyle = "rgba(220, 95, 49, 0.85)";
+      context.strokeStyle = "rgba(255, 108, 4, 0.9)";
       context.lineWidth = 1.5;
       context.setLineDash([8, 6]);
       context.beginPath();
@@ -1277,7 +1287,7 @@
       context.setLineDash([]);
     }
 
-    context.strokeStyle = "rgba(32, 24, 19, 0.75)";
+    context.strokeStyle = "rgba(242, 242, 242, 0.72)";
     context.lineWidth = 1;
     const columnWidth = cssWidth / waveformPeaks.length;
 
@@ -1383,6 +1393,7 @@
       waveformPeaks = buildWaveformPeaks(audioBuffer, Math.min(1200, Math.max(320, Math.floor(waveformPanel.clientWidth || 720))));
       waveformStatus.textContent = `${file.name} | ${formatDuration(audioBuffer.duration)} | preview only`;
       setMarkerButtonsEnabled(true);
+      syncPlaybackButtons();
       drawWaveform();
     } catch {
       disposePreviewAudio();
