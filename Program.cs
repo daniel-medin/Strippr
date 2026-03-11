@@ -1,6 +1,10 @@
+using System.Diagnostics;
 using System.Net.Mime;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.StaticFiles;
+using Microsoft.Extensions.Options;
 using Strippr.Options;
 using Strippr.Services;
 
@@ -106,4 +110,86 @@ app.MapGet("/download/{fileName}", async Task<IResult> (
 app.MapRazorPages()
    .WithStaticAssets();
 
-app.Run();
+var stripprOptions = app.Services.GetRequiredService<IOptions<StripprOptions>>().Value;
+var shouldLaunchBrowser =
+    stripprOptions.LaunchBrowserOnStartup &&
+    !app.Environment.IsDevelopment() &&
+    Environment.UserInteractive;
+
+await app.StartAsync();
+
+if (shouldLaunchBrowser)
+{
+    TryLaunchBrowser(app);
+}
+
+await app.WaitForShutdownAsync();
+
+static void TryLaunchBrowser(WebApplication app)
+{
+    var launchUrl = GetLaunchUrl(app);
+    if (launchUrl is null)
+    {
+        app.Logger.LogWarning("The app started, but no launchable local address was found for browser startup.");
+        return;
+    }
+
+    try
+    {
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = launchUrl,
+            UseShellExecute = true
+        });
+        app.Logger.LogInformation("Opened browser to {Url}", launchUrl);
+    }
+    catch (Exception exception)
+    {
+        app.Logger.LogWarning(exception, "Failed to open browser to {Url}", launchUrl);
+    }
+}
+
+static string? GetLaunchUrl(WebApplication app)
+{
+    var addresses = app.Services
+        .GetRequiredService<IServer>()
+        .Features
+        .Get<IServerAddressesFeature>()?
+        .Addresses;
+
+    if (addresses is null)
+    {
+        return null;
+    }
+
+    foreach (var address in addresses.OrderByDescending(address => address.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
+    {
+        if (TryNormalizeLaunchUrl(address, out var launchUrl))
+        {
+            return launchUrl;
+        }
+    }
+
+    return null;
+}
+
+static bool TryNormalizeLaunchUrl(string address, out string? launchUrl)
+{
+    launchUrl = null;
+
+    if (!Uri.TryCreate(address, UriKind.Absolute, out var uri) ||
+        uri.Scheme is not ("http" or "https"))
+    {
+        return false;
+    }
+
+    var uriBuilder = new UriBuilder(uri);
+
+    if (uriBuilder.Host is "*" or "+" or "0.0.0.0" or "[::]" or "::")
+    {
+        uriBuilder.Host = "127.0.0.1";
+    }
+
+    launchUrl = uriBuilder.Uri.AbsoluteUri;
+    return true;
+}

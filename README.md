@@ -15,6 +15,7 @@ End users should download a release build instead of cloning the repo.
 - Latest Windows build: [GitHub Releases](https://github.com/daniel-medin/Strippr/releases/latest)
 - Release zip includes the .NET runtime and bundled FFmpeg
 - Download, unzip, and run `Strippr.exe`
+- The standalone app opens in your default browser at `http://127.0.0.1:5123`
 
 ## What It Does
 

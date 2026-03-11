@@ -4,6 +4,8 @@ public sealed class StripprOptions
 {
     public const string SectionName = "Strippr";
 
+    public bool LaunchBrowserOnStartup { get; set; } = true;
+
     public string FfmpegPath { get; set; } = "ffmpeg";
 
     public string BundledFfmpegFolder { get; set; } = "tools/ffmpeg";
