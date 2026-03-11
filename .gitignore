@@ -6,5 +6,7 @@ App_Data/outputs/
 App_Data/temp/
 tools/ffmpeg/package/
 strippr-run.log
+strippr-dev.log
+strippr-dev.err.log
 *.user
 *.suo

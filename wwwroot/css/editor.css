@@ -373,6 +373,55 @@ input[type="number"] {
   background: rgba(121, 215, 154, 0.08);
 }
 
+.waveform-auto-preview {
+  position: absolute;
+  top: 32%;
+  bottom: 32%;
+  min-width: 3px;
+  border: 1px solid rgba(121, 215, 154, 0.45);
+  background: rgba(121, 215, 154, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.waveform-auto-target,
+.waveform-auto-floor {
+  position: absolute;
+  min-width: 3px;
+}
+
+.waveform-auto-target {
+  top: 18%;
+  bottom: 18%;
+  border: 1px dashed rgba(255, 255, 255, 0.42);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.waveform-auto-floor {
+  top: 62%;
+  bottom: 14%;
+  border: 1px solid rgba(102, 183, 255, 0.5);
+  background: rgba(102, 183, 255, 0.16);
+}
+
+.waveform-auto-label {
+  position: absolute;
+  right: 0.35rem;
+  font-family: var(--font-ui);
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.waveform-auto-label--speed {
+  top: 0.24rem;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.waveform-auto-label--retained {
+  bottom: 0.24rem;
+  color: rgba(102, 183, 255, 0.92);
+}
+
 .waveform-cut-region {
   z-index: 2;
   background: rgba(255, 108, 4, 0.12);

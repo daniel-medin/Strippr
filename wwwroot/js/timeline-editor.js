@@ -805,6 +805,36 @@
     return targetDurationSeconds <= 0 ? 1 : Math.max(1, durationSeconds / targetDurationSeconds);
   };
 
+  const describeSilenceCompression = (durationSeconds, pauseSpeedMultiplier, retainedSilenceSeconds) => {
+    const safeDurationSeconds = Math.max(0, durationSeconds);
+    const retainedTargetDurationSeconds = retainedSilenceSeconds > 0
+      ? Math.min(safeDurationSeconds, retainedSilenceSeconds)
+      : null;
+    const pauseSpeedTargetDurationSeconds = pauseSpeedMultiplier > 1
+      ? safeDurationSeconds / pauseSpeedMultiplier
+      : null;
+
+    let outputDurationSeconds = safeDurationSeconds;
+    if (retainedTargetDurationSeconds !== null && pauseSpeedTargetDurationSeconds === null) {
+      outputDurationSeconds = retainedTargetDurationSeconds;
+    } else if (pauseSpeedTargetDurationSeconds !== null && retainedTargetDurationSeconds !== null) {
+      outputDurationSeconds = Math.max(pauseSpeedTargetDurationSeconds, retainedTargetDurationSeconds);
+    } else if (pauseSpeedTargetDurationSeconds !== null) {
+      outputDurationSeconds = pauseSpeedTargetDurationSeconds;
+    }
+
+    outputDurationSeconds = clamp(outputDurationSeconds, 0, safeDurationSeconds);
+
+    return {
+      pauseSpeedTargetDurationSeconds,
+      retainedTargetDurationSeconds,
+      outputDurationSeconds,
+      playbackSpeed: outputDurationSeconds <= 0
+        ? 1
+        : Math.max(1, safeDurationSeconds / outputDurationSeconds),
+    };
+  };
+
   const applyCutHandles = (ranges, handleSeconds) => {
     if (ranges.length === 0 || handleSeconds <= 0) {
       return ranges.map((range) => ({ ...range }));
@@ -936,10 +966,70 @@
     const automaticRanges = subtractRanges(silenceRanges, manualRanges);
     const isHardCut = pauseSpeedMultiplier <= 1 && retainedSilenceSeconds <= 0;
 
-    return automaticRanges.map((range) => ({
-      ...range,
-      isHardCut,
-    }));
+    return automaticRanges.map((range) => {
+      if (isHardCut) {
+        return {
+          ...range,
+          isHardCut,
+          playbackSpeed: 1,
+          outputDurationSeconds: 0,
+          pauseSpeedTargetDurationSeconds: null,
+          retainedTargetDurationSeconds: null,
+          requestedPauseSpeedMultiplier: null,
+        };
+      }
+
+      return {
+        ...range,
+        isHardCut,
+        requestedPauseSpeedMultiplier: pauseSpeedMultiplier > 1 ? pauseSpeedMultiplier : null,
+        ...describeSilenceCompression(range.endSeconds - range.startSeconds, pauseSpeedMultiplier, retainedSilenceSeconds),
+      };
+    });
+  };
+
+  const buildWaveformCompressionPreviewRanges = (manualRanges) => {
+    const sourceRanges = buildAutomaticEditRanges(manualRanges);
+
+    return sourceRanges.map((range) => {
+      const sourceDurationSeconds = Math.max(0, range.endSeconds - range.startSeconds);
+      const compressionRatio = sourceDurationSeconds <= 0
+        ? 1
+        : clamp(range.outputDurationSeconds / sourceDurationSeconds, 0, 1);
+      const startX = secondsToX(range.startSeconds);
+      const width = Math.max(2, secondsToX(range.endSeconds) - startX);
+      const previewWidth = range.isHardCut
+        ? 0
+        : Math.max(3, width * compressionRatio);
+      const pauseSpeedTargetRatio = range.pauseSpeedTargetDurationSeconds === null || sourceDurationSeconds <= 0
+        ? 1
+        : clamp(range.pauseSpeedTargetDurationSeconds / sourceDurationSeconds, 0, 1);
+      const retainedTargetRatio = range.retainedTargetDurationSeconds === null || sourceDurationSeconds <= 0
+        ? 1
+        : clamp(range.retainedTargetDurationSeconds / sourceDurationSeconds, 0, 1);
+      const pauseSpeedTargetWidth = range.pauseSpeedTargetDurationSeconds === null
+        ? 0
+        : Math.max(3, width * pauseSpeedTargetRatio);
+      const retainedTargetWidth = range.retainedTargetDurationSeconds === null
+        ? 0
+        : Math.max(3, width * retainedTargetRatio);
+
+      return {
+        ...range,
+        sourceDurationSeconds,
+        compressionRatio,
+        pauseSpeedTargetRatio,
+        retainedTargetRatio,
+        startX,
+        width,
+        previewWidth,
+        pauseSpeedTargetWidth,
+        retainedTargetWidth,
+        previewX: startX + Math.max(0, (width - previewWidth) / 2),
+        pauseSpeedTargetX: startX + Math.max(0, (width - pauseSpeedTargetWidth) / 2),
+        retainedTargetX: startX + Math.max(0, (width - retainedTargetWidth) / 2),
+      };
+    });
   };
 
   const renderMarkerList = (orderedMarkers) => {
@@ -997,13 +1087,52 @@
 
     waveformOverlay.innerHTML = "";
     const { orderedMarkers, ranges } = buildManualCutRanges();
-    const automaticRanges = buildAutomaticEditRanges(ranges);
+    const automaticRanges = buildWaveformCompressionPreviewRanges(ranges);
 
     automaticRanges.forEach((range) => {
       const region = document.createElement("div");
       region.className = `waveform-auto-region ${range.isHardCut ? "is-hard-cut" : "is-compressed"}`;
-      region.style.left = `${secondsToX(range.startSeconds)}px`;
-      region.style.width = `${Math.max(2, secondsToX(range.endSeconds) - secondsToX(range.startSeconds))}px`;
+      region.style.left = `${range.startX}px`;
+      region.style.width = `${range.width}px`;
+
+      if (!range.isHardCut && range.compressionRatio < 0.995) {
+        if (range.pauseSpeedTargetDurationSeconds !== null && range.pauseSpeedTargetRatio < 0.995) {
+          const speedTarget = document.createElement("div");
+          speedTarget.className = "waveform-auto-target";
+          speedTarget.style.left = `${Math.max(0, range.pauseSpeedTargetX - range.startX)}px`;
+          speedTarget.style.width = `${range.pauseSpeedTargetWidth}px`;
+          region.appendChild(speedTarget);
+        }
+
+        if (range.retainedTargetDurationSeconds !== null && range.retainedTargetRatio < 0.995) {
+          const retainedTarget = document.createElement("div");
+          retainedTarget.className = "waveform-auto-floor";
+          retainedTarget.style.left = `${Math.max(0, range.retainedTargetX - range.startX)}px`;
+          retainedTarget.style.width = `${range.retainedTargetWidth}px`;
+          region.appendChild(retainedTarget);
+        }
+
+        const preview = document.createElement("div");
+        preview.className = "waveform-auto-preview";
+        preview.style.left = `${Math.max(0, range.previewX - range.startX)}px`;
+        preview.style.width = `${range.previewWidth}px`;
+        region.appendChild(preview);
+
+        if (range.width >= 72 && range.pauseSpeedTargetDurationSeconds !== null && range.pauseSpeedTargetRatio < 0.995) {
+          const label = document.createElement("span");
+          label.className = "waveform-auto-label waveform-auto-label--speed";
+          label.textContent = `${(range.requestedPauseSpeedMultiplier ?? range.playbackSpeed).toFixed(1)}x`;
+          region.appendChild(label);
+        }
+
+        if (range.width >= 96 && range.retainedTargetDurationSeconds !== null && range.retainedTargetRatio < 0.995) {
+          const label = document.createElement("span");
+          label.className = "waveform-auto-label waveform-auto-label--retained";
+          label.textContent = `min ${range.retainedTargetDurationSeconds.toFixed(2)}s`;
+          region.appendChild(label);
+        }
+      }
+
       waveformOverlay.appendChild(region);
     });
 
@@ -1046,7 +1175,7 @@
 
     updateMarkerSummary(ranges, unpairedCount);
     renderMarkerList(orderedMarkers);
-    renderWaveformOverlay();
+    drawWaveform();
   };
 
   const resetManualCuts = () => {
@@ -1263,6 +1392,10 @@
 
     const centerY = cssHeight / 2;
     const drawableHalfHeight = ((cssHeight - 36) / 2) * verticalZoomValue;
+    const { ranges: manualRanges } = buildManualCutRanges();
+    const compressionPreviewRanges = buildWaveformCompressionPreviewRanges(manualRanges)
+      .filter((range) => !range.isHardCut && range.compressionRatio < 0.995 && range.sourceDurationSeconds > 0);
+
     context.fillStyle = "rgba(10, 10, 11, 1)";
     context.fillRect(0, 0, cssWidth, cssHeight);
     context.strokeStyle = "rgba(255, 255, 255, 0.08)";
@@ -1293,7 +1426,23 @@
 
     for (let index = 0; index < waveformPeaks.length; index += 1) {
       const peak = waveformPeaks[index];
-      const x = index * columnWidth + columnWidth / 2;
+      const sourceSeconds = waveformDurationSeconds * ((index + 0.5) / waveformPeaks.length);
+      let x = index * columnWidth + columnWidth / 2;
+
+      for (const range of compressionPreviewRanges) {
+        if (sourceSeconds < range.startSeconds || sourceSeconds > range.endSeconds) {
+          continue;
+        }
+
+        const sourceProgress = clamp(
+          (sourceSeconds - range.startSeconds) / range.sourceDurationSeconds,
+          0,
+          1,
+        );
+        x = range.previewX + sourceProgress * range.previewWidth;
+        break;
+      }
+
       context.beginPath();
       context.moveTo(x, centerY - peak.max * drawableHalfHeight);
       context.lineTo(x, centerY - peak.min * drawableHalfHeight);
@@ -1429,7 +1578,7 @@
     silenceSlider.addEventListener("input", () => {
       stopResultPreview();
       syncSilenceControls();
-      renderWaveformOverlay();
+      drawWaveform();
     });
   }
 
@@ -1438,7 +1587,7 @@
     retainedSilenceSlider.addEventListener("input", () => {
       stopResultPreview();
       syncRetainedSilenceControls();
-      renderWaveformOverlay();
+      drawWaveform();
     });
   }
 
@@ -1447,7 +1596,7 @@
     cutHandleSlider.addEventListener("input", () => {
       stopResultPreview();
       syncCutHandleControls();
-      renderWaveformOverlay();
+      drawWaveform();
     });
   }
 
@@ -1471,7 +1620,7 @@
     pauseSpeedSlider.addEventListener("input", () => {
       stopResultPreview();
       syncPauseSpeedControls();
-      renderWaveformOverlay();
+      drawWaveform();
     });
   }
 
