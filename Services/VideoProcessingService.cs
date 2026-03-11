@@ -74,6 +74,15 @@ public sealed class VideoProcessingService
 
         try
         {
+            _workspaceService.DeleteUploadsExcept(uploadPath);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Failed to remove superseded uploads after saving {UploadPath}", uploadPath);
+        }
+
+        try
+        {
             var analysis = await _ffmpegService.AnalyzeSilenceAsync(
                 uploadPath,
                 noiseThreshold,

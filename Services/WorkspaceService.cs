@@ -39,6 +39,36 @@ public sealed class WorkspaceService
         return Path.Combine(UploadsPath, uniqueName);
     }
 
+    public void DeleteUploadsExcept(string uploadPath)
+    {
+        var fullUploadsPath = Path.GetFullPath(UploadsPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var fullUploadPath = Path.GetFullPath(uploadPath);
+
+        if (!fullUploadPath.StartsWith(fullUploadsPath, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("The retained upload path must stay inside the uploads workspace.");
+        }
+
+        if (!Directory.Exists(UploadsPath))
+        {
+            return;
+        }
+
+        foreach (var existingUploadPath in Directory.EnumerateFiles(UploadsPath, "*", SearchOption.TopDirectoryOnly))
+        {
+            if (string.Equals(
+                Path.GetFullPath(existingUploadPath),
+                fullUploadPath,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            File.Delete(existingUploadPath);
+        }
+    }
+
     public string CreateOutputPath(string originalFileName, bool useMp4Extension)
     {
         var safeBaseName = SanitizeFileName(Path.GetFileNameWithoutExtension(originalFileName));
