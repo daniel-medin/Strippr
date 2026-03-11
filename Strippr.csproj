@@ -4,6 +4,22 @@
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <DefaultItemExcludes>$(DefaultItemExcludes);artifacts\**;bin\**;obj\**</DefaultItemExcludes>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="tools\ffmpeg\package\**\bin\ffmpeg.exe">
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="tools\ffmpeg\package\**\bin\ffprobe.exe">
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="tools\ffmpeg\package\**\LICENSE">
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="tools\ffmpeg\package\**\README.txt">
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
 
 </Project>

@@ -1,8 +1,10 @@
 bin/
 obj/
+artifacts/
 App_Data/uploads/
 App_Data/outputs/
 App_Data/temp/
 tools/ffmpeg/package/
+strippr-run.log
 *.user
 *.suo

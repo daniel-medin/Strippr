@@ -8,6 +8,14 @@ Strippr is an ASP.NET Core 9 Razor Pages app that lets you upload a video, previ
 
 If Strippr saves you time, consider supporting development.
 
+## Download for Windows
+
+End users should download a release build instead of cloning the repo.
+
+- Latest Windows build: [GitHub Releases](https://github.com/daniel-medin/Strippr/releases/latest)
+- Release zip includes the .NET runtime and bundled FFmpeg
+- Download, unzip, and run `Strippr.exe`
+
 ## What It Does
 
 - Upload a local video file
@@ -31,7 +39,7 @@ Requirements:
 
 - .NET SDK 9.0+
 - Windows
-- Internet access on first run if FFmpeg has not already been bundled locally
+- Internet access on first run if `tools/ffmpeg/package` is not already available locally
 
 From the repo root:
 
@@ -45,6 +53,22 @@ Then open the local URL printed by ASP.NET Core, or use:
 http://127.0.0.1:5123
 ```
 
+## Build a Windows Release
+
+From the repo root:
+
+```powershell
+.\scripts\publish-release.ps1 -Version 1.0.0
+```
+
+That writes these files to `artifacts/`:
+
+- `Strippr-v1.0.0-win-x64/`
+- `Strippr-v1.0.0-win-x64.zip`
+- `Strippr-v1.0.0-win-x64.sha256.txt`
+
+The release script publishes a self-contained Windows build, includes the bundled FFmpeg runtime, removes debug-only extras, and emits a SHA-256 checksum alongside the zip.
+
 ## FFmpeg Handling
 
 Strippr bootstraps a pinned FFmpeg build automatically on startup if a local bundled copy is not already available.
@@ -54,6 +78,7 @@ Current behavior:
 - preferred local bundle path: `tools/ffmpeg`
 - fallback: machine-installed FFmpeg if available
 - current pinned download: Gyan FFmpeg 8.0.1 essentials build
+- release builds include the bundled local FFmpeg runtime when `tools/ffmpeg/package` is available
 
 Important GitHub note:
 
