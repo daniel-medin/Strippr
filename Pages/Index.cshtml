@@ -50,9 +50,11 @@
 
         <div class="field-grid">
             <label class="field">
-                <span>Noise threshold</span>
-                <div class="slider-head">
-                    <strong data-noise-display>-30 dB</strong>
+                <div class="field-topline">
+                    <span>Noise threshold</span>
+                    <div class="slider-head">
+                        <strong class="dial-readout" data-noise-display>-30 dB</strong>
+                    </div>
                 </div>
                 <input asp-for="Input.NoiseThreshold" type="hidden" />
                 <input type="range" min="-60" max="0" step="1" value="-30" data-noise-slider />
@@ -64,9 +66,11 @@
             </label>
 
             <label class="field">
-                <span>Minimum silence</span>
-                <div class="slider-head">
-                    <strong data-silence-display>0.5 s</strong>
+                <div class="field-topline">
+                    <span>Minimum silence</span>
+                    <div class="slider-head">
+                        <strong class="dial-readout" data-silence-display>0.5 s</strong>
+                    </div>
                 </div>
                 <input asp-for="Input.MinimumSilenceSeconds" type="range" min="0.1" max="3" step="0.1" data-silence-slider />
                 <div class="slider-scale">
@@ -77,9 +81,11 @@
             </label>
 
             <label class="field">
-                <span>Min kept pause</span>
-                <div class="slider-head">
-                    <strong data-retained-silence-display>0.00 s</strong>
+                <div class="field-topline">
+                    <span>Min kept pause</span>
+                    <div class="slider-head">
+                        <strong class="dial-readout" data-retained-silence-display>0.00 s</strong>
+                    </div>
                 </div>
                 <input asp-for="Input.RetainedSilenceSeconds" type="range" min="0" max="1" step="0.05" data-retained-silence-slider />
                 <div class="slider-scale">
@@ -90,9 +96,11 @@
             </label>
 
             <label class="field">
-                <span>Cut handles</span>
-                <div class="slider-head">
-                    <strong data-cut-handle-display>120 ms</strong>
+                <div class="field-topline">
+                    <span>Cut handles</span>
+                    <div class="slider-head">
+                        <strong class="dial-readout" data-cut-handle-display>120 ms</strong>
+                    </div>
                 </div>
                 <input asp-for="Input.CutHandleMilliseconds" type="range" min="0" max="500" step="10" data-cut-handle-slider />
                 <div class="slider-scale">
@@ -103,9 +111,11 @@
             </label>
 
             <label class="field">
-                <span>Crossfade</span>
-                <div class="slider-head">
-                    <strong data-crossfade-display>80 ms</strong>
+                <div class="field-topline">
+                    <span>Crossfade</span>
+                    <div class="slider-head">
+                        <strong class="dial-readout" data-crossfade-display>80 ms</strong>
+                    </div>
                 </div>
                 <input asp-for="Input.CrossfadeMilliseconds" type="range" min="0" max="500" step="5" data-crossfade-slider />
                 <div class="slider-scale">
@@ -116,9 +126,11 @@
             </label>
 
             <label class="field">
-                <span>Video crossfade</span>
-                <div class="slider-head">
-                    <strong data-video-crossfade-display>0 fr</strong>
+                <div class="field-topline">
+                    <span>Video crossfade</span>
+                    <div class="slider-head">
+                        <strong class="dial-readout" data-video-crossfade-display>0 fr</strong>
+                    </div>
                 </div>
                 <input asp-for="Input.VideoCrossfadeFrames" type="range" min="0" max="48" step="1" data-video-crossfade-slider />
                 <div class="slider-scale">
@@ -128,10 +140,12 @@
                 <small class="field-help">Blends adjacent video shots over a short frame range on hard cuts.</small>
             </label>
 
-            <label class="field">
-                <span>Pause speed</span>
-                <div class="slider-head">
-                    <strong data-pause-speed-display>1.0x</strong>
+            <label class="field field--wide">
+                <div class="field-topline">
+                    <span>Pause speed</span>
+                    <div class="slider-head">
+                        <strong class="dial-readout" data-pause-speed-display>1.0x</strong>
+                    </div>
                 </div>
                 <input asp-for="Input.PauseSpeedMultiplier" type="range" min="1" max="10" step="0.1" data-pause-speed-slider />
                 <div class="slider-scale">
@@ -154,18 +168,18 @@
                 <span class="waveform-threshold" data-threshold-readout>-30dB</span>
             </div>
             <div class="waveform-toolbar">
-                <label class="waveform-control">
+                <label class="waveform-control waveform-control--zoom">
                     <span>Vertical zoom</span>
                     <div class="waveform-control-row">
                         <input type="range" min="1" max="6" step="0.1" value="1" data-waveform-vertical-zoom />
-                        <strong data-waveform-vertical-display>1.0x</strong>
+                        <strong class="dial-readout dial-readout--small" data-waveform-vertical-display>1.0x</strong>
                     </div>
                 </label>
-                <label class="waveform-control">
+                <label class="waveform-control waveform-control--zoom">
                     <span>Horizontal zoom</span>
                     <div class="waveform-control-row">
                         <input type="range" min="1" max="12" step="0.5" value="1" data-waveform-horizontal-zoom />
-                        <strong data-waveform-horizontal-display>1.0x</strong>
+                        <strong class="dial-readout dial-readout--small" data-waveform-horizontal-display>1.0x</strong>
                     </div>
                 </label>
             </div>

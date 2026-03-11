@@ -242,6 +242,34 @@
     thresholdReadout.textContent = thresholdDb === null ? "Invalid dB" : `${thresholdDb.toFixed(1)} dB`;
   };
 
+  const getSliderRatio = (slider) => {
+    if (!(slider instanceof HTMLInputElement)) {
+      return 0;
+    }
+
+    const min = Number.parseFloat(slider.min || "0");
+    const max = Number.parseFloat(slider.max || "100");
+    const value = Number.parseFloat(slider.value);
+
+    if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min || !Number.isFinite(value)) {
+      return 0;
+    }
+
+    return clamp((value - min) / (max - min), 0, 1);
+  };
+
+  const syncSliderVisual = (slider, display) => {
+    const ratio = getSliderRatio(slider);
+
+    if (slider instanceof HTMLInputElement) {
+      slider.style.setProperty("--range-percent", `${(ratio * 100).toFixed(2)}%`);
+    }
+
+    if (display instanceof HTMLElement) {
+      display.style.setProperty("--value-ratio", ratio.toFixed(4));
+    }
+  };
+
   const syncNoiseControls = () => {
     if (!noiseInput || !noiseSlider) {
       return;
@@ -253,6 +281,8 @@
     if (noiseDisplay) {
       noiseDisplay.textContent = `${sliderValue.toFixed(0)} dB`;
     }
+
+    syncSliderVisual(noiseSlider, noiseDisplay);
   };
 
   const syncSilenceControls = () => {
@@ -264,6 +294,8 @@
     if (silenceDisplay) {
       silenceDisplay.textContent = `${sliderValue.toFixed(1)} s`;
     }
+
+    syncSliderVisual(silenceSlider, silenceDisplay);
   };
 
   const syncRetainedSilenceControls = () => {
@@ -273,6 +305,7 @@
 
     const sliderValue = Number.parseFloat(retainedSilenceSlider.value);
     retainedSilenceDisplay.textContent = `${sliderValue.toFixed(2)} s`;
+    syncSliderVisual(retainedSilenceSlider, retainedSilenceDisplay);
   };
 
   const syncCutHandleControls = () => {
@@ -282,6 +315,7 @@
 
     const sliderValue = Number.parseFloat(cutHandleSlider.value);
     cutHandleDisplay.textContent = `${sliderValue.toFixed(0)} ms`;
+    syncSliderVisual(cutHandleSlider, cutHandleDisplay);
   };
 
   const syncCrossfadeControls = () => {
@@ -291,6 +325,7 @@
 
     const sliderValue = Number.parseFloat(crossfadeSlider.value);
     crossfadeDisplay.textContent = `${sliderValue.toFixed(0)} ms`;
+    syncSliderVisual(crossfadeSlider, crossfadeDisplay);
   };
 
   const syncVideoCrossfadeControls = () => {
@@ -300,6 +335,7 @@
 
     const sliderValue = Number.parseInt(videoCrossfadeSlider.value, 10);
     videoCrossfadeDisplay.textContent = `${sliderValue} fr`;
+    syncSliderVisual(videoCrossfadeSlider, videoCrossfadeDisplay);
   };
 
   const syncPauseSpeedControls = () => {
@@ -309,6 +345,7 @@
 
     const sliderValue = Number.parseFloat(pauseSpeedSlider.value);
     pauseSpeedDisplay.textContent = `${sliderValue.toFixed(1)}x`;
+    syncSliderVisual(pauseSpeedSlider, pauseSpeedDisplay);
   };
 
   const syncWaveformZoomControls = () => {
@@ -317,6 +354,8 @@
       if (waveformVerticalDisplay) {
         waveformVerticalDisplay.textContent = `${verticalZoomValue.toFixed(1)}x`;
       }
+
+      syncSliderVisual(waveformVerticalZoom, waveformVerticalDisplay);
     }
 
     if (waveformHorizontalZoom) {
@@ -324,6 +363,8 @@
       if (waveformHorizontalDisplay) {
         waveformHorizontalDisplay.textContent = `${horizontalZoomValue.toFixed(1)}x`;
       }
+
+      syncSliderVisual(waveformHorizontalZoom, waveformHorizontalDisplay);
     }
   };
 
