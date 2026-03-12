@@ -6,21 +6,16 @@
 
 <section class="hero-shell">
     <div class="hero-copy">
-        <p class="eyebrow">Editor workspace</p>
-        <h1>Build the cut, then render.</h1>
+        <p class="eyebrow">Workspace</p>
+        <h1>Build the cut. Render the result.</h1>
         <p class="hero-text">
-            Analyze the waveform, mark manual cuts, preview compressed pauses, and export the cleaned timeline without leaving your machine.
+            Waveform-first local editing for silence cuts, pause shaping, and fast renders.
         </p>
-        <div class="hero-strip">
-            <span class="hero-chip">Waveform-first</span>
-            <span class="hero-chip">Manual in/out cuts</span>
-            <span class="hero-chip">Pause compression</span>
-        </div>
     </div>
     <div class="health-panel @(Model.FfmpegAvailable ? "online" : "offline")">
-        <span class="health-label">Render engine</span>
+        <span class="health-label">FFmpeg</span>
         <strong>@(Model.FfmpegAvailable ? "Ready" : "Missing")</strong>
-        <p>@Model.FfmpegStatusMessage</p>
+        <p title="@Model.FfmpegStatusMessage">@(Model.FfmpegAvailable ? "Local render engine online." : Model.FfmpegStatusMessage)</p>
     </div>
 </section>
 
@@ -30,6 +25,15 @@
             <p class="panel-kicker">Timeline</p>
             <h2>Edit one clip</h2>
         </div>
+    </div>
+
+    <div class="workspace-tabs" data-workspace-tabs>
+        <button class="workspace-tab is-active" type="button" data-workspace-tab="editor" aria-selected="true">
+            Editor
+        </button>
+        <button class="workspace-tab" type="button" data-workspace-tab="ai" aria-selected="false">
+            AI (experimental)
+        </button>
     </div>
 
     <form
@@ -58,7 +62,23 @@
             <span class="dropzone-copy">Choose a local video file to process.</span>
         </label>
 
+        <div class="workspace-tab-panel" data-workspace-panel="editor">
         <div class="field-grid">
+            <div class="field field--wide">
+                <div class="field-topline">
+                    <span>Auto silence</span>
+                    <strong class="dial-readout" data-auto-silence-display>@Model.DescribeAutomaticSilenceAnalyzer(Model.Input.AutomaticSilenceAnalyzer)</strong>
+                </div>
+                <select asp-for="Input.AutomaticSilenceAnalyzer" class="field-select">
+                    <option value="ffmpeg">FFmpeg</option>
+                    <option value="silero">Silero VAD</option>
+                    <option value="hybrid">Hybrid</option>
+                </select>
+                <small class="field-help" data-auto-silence-help>
+                    Choose the detector used for automatic pause cuts.
+                </small>
+            </div>
+
             <div class="field" data-setting-field="noise">
                 <div class="field-topline">
                     <span>Noise threshold</span>
@@ -194,10 +214,13 @@
                 <small class="field-help"><code>1.0x</code> uses the minimum kept pause. Higher values compress silence faster instead of fully removing it.</small>
             </div>
         </div>
+        </div>
 
         <input asp-for="Input.ManualCutRangesJson" type="hidden" data-manual-cut-ranges />
         <input asp-for="Input.AiCutRangesJson" type="hidden" data-ai-cut-ranges />
         <input asp-for="Input.AiContentCutRangesJson" type="hidden" data-ai-content-cut-ranges />
+        <input asp-for="Input.AiAutoCutRangesJson" type="hidden" data-ai-auto-cut-ranges />
+        <input asp-for="Input.AutomaticCutRangesJson" type="hidden" data-automatic-cut-ranges />
 
         <section class="waveform-panel" data-waveform-panel hidden>
             <div class="waveform-head">
@@ -206,6 +229,19 @@
                     <h3>Waveform editor</h3>
                 </div>
                 <span class="waveform-threshold" data-threshold-readout>-30dB</span>
+            </div>
+            <div class="waveform-actions">
+                <div class="waveform-action-buttons">
+                    <button class="timeline-button" type="button" data-waveform-play disabled>Play audio (Space)</button>
+                    <button class="timeline-button" type="button" data-waveform-play-result disabled>Play result (R)</button>
+                    <button class="timeline-button" type="button" data-add-marker="in">Add in (A)</button>
+                    <button class="timeline-button" type="button" data-add-marker="out">Add out (S)</button>
+                    <button class="timeline-button" type="button" data-waveform-undo disabled>Undo (Ctrl+Z)</button>
+                    <button class="timeline-button" type="button" data-waveform-redo disabled>Redo (Ctrl+Y)</button>
+                </div>
+                <p class="waveform-help">
+                    Blue regions show automatic silence edits. Orange regions show manual cuts. Drag the blue cut handles to tighten automatic cuts, or click the waveform to place the playhead before previewing the result.
+                </p>
             </div>
             <div class="waveform-toolbar">
                 <label class="waveform-control waveform-control--zoom">
@@ -235,129 +271,12 @@
                     </div>
                 </label>
             </div>
-            <section
-                class="ai-analysis-panel"
-                data-ai-default-key-available="@Model.HasConfiguredOpenAiApiKey.ToString().ToLowerInvariant()"
-                data-ai-default-model="@Model.DefaultOpenAiModel">
-                <div class="ai-analysis-head">
-                    <div>
-                        <p class="panel-kicker">AI overlay</p>
-                        <strong>Transcript gap detection</strong>
-                    </div>
-                    <div class="ai-analysis-headline">
-                        <span class="ai-analysis-tag">@(Model.HasConfiguredOpenAiApiKey ? "Local key ready" : "Overlay only")</span>
-                        <label class="field-toggle ai-analysis-toggle">
-                            <input class="field-toggle__input" type="checkbox" data-ai-enabled />
-                            <span class="field-toggle__label">On</span>
-                        </label>
-                    </div>
-                </div>
-                <div class="ai-analysis-grid">
-                    <label class="ai-analysis-field">
-                        <span>OpenAI API key</span>
-                        <input
-                            type="password"
-                            autocomplete="off"
-                            spellcheck="false"
-                            placeholder="@(Model.HasConfiguredOpenAiApiKey ? "Leave blank to use local key" : "sk-...")"
-                            data-ai-api-key />
-                    </label>
-                    <label class="ai-analysis-field">
-                        <span>Model</span>
-                        <select data-ai-model>
-                            <option value="whisper-1">whisper-1</option>
-                        </select>
-                    </label>
-                    <label class="ai-analysis-field">
-                        <span>Spoken language</span>
-                        <select data-ai-language>
-                            <option value="en">English</option>
-                            <option value="">Auto detect</option>
-                            <option value="sv">Swedish</option>
-                        </select>
-                    </label>
-                    <div class="ai-analysis-actions">
-                        <button class="secondary-button" type="button" data-ai-analyze>
-                            <span class="ai-analysis-spinner" hidden aria-hidden="true"></span>
-                            <span data-ai-analyze-label>Analyze with AI</span>
-                        </button>
-                        <button class="secondary-button" type="button" data-ai-clear hidden>Clear AI overlay</button>
-                    </div>
-                </div>
-                <p class="ai-analysis-help">
-                    @if (Model.HasConfiguredOpenAiApiKey)
-                    {
-                        <text>Uses OpenAI transcript timing gaps, then trims them against the local waveform so non-silent audio does not get marked as silence. A local key is configured on this machine, so you can leave the field blank or override it for one run. Set Spoken language if auto-detect drifts. This overlay currently uses timestamp-capable transcription models only. AI ranges do not change manual cuts.</text>
-                    }
-                    else
-                    {
-                        <text>Uses OpenAI transcript timing gaps, then trims them against the local waveform so non-silent audio does not get marked as silence. The API key stays in this local app flow, Strippr does not save it, and this overlay currently uses timestamp-capable transcription models only. Set Spoken language if auto-detect drifts. AI ranges do not change manual cuts.</text>
-                    }
-                </p>
-                <p class="ai-analysis-status" data-ai-status hidden></p>
-            </section>
-            <section
-                class="ai-content-panel"
-                data-ai-content-default-key-available="@Model.HasConfiguredOpenAiApiKey.ToString().ToLowerInvariant()">
-                <div class="ai-content-head">
-                    <div>
-                        <p class="panel-kicker">A2</p>
-                        <strong>Content-aware retake detector</strong>
-                    </div>
-                    <label class="field-toggle ai-content-toggle">
-                        <input class="field-toggle__input" type="checkbox" data-ai-content-enabled />
-                        <span class="field-toggle__label">Off</span>
-                    </label>
-                </div>
-                <div class="ai-content-grid">
-                    <label class="ai-content-field">
-                        <span>Analysis model</span>
-                        <select data-ai-content-model>
-                            <option value="gpt-5.2">gpt-5.2</option>
-                            <option value="gpt-5">gpt-5</option>
-                            <option value="gpt-5-mini">gpt-5-mini</option>
-                            <option value="gpt-4o-mini">gpt-4o-mini</option>
-                        </select>
-                    </label>
-                    <div class="ai-content-actions">
-                        <button class="secondary-button" type="button" data-ai-content-analyze>
-                            <span class="ai-analysis-spinner" hidden aria-hidden="true" data-ai-content-spinner></span>
-                            <span data-ai-content-analyze-label>Analyze content</span>
-                        </button>
-                        <button class="secondary-button" type="button" data-ai-content-clear hidden>Clear A2</button>
-                    </div>
-                </div>
-                <p class="ai-content-help">
-                    Uses Whisper for timestamped transcript recovery, then runs a second reasoning pass to look for false starts, self-corrections, repeated phrases, filler-heavy stumbles, and likely spoken mistakes. A2 reuses the OpenAI key and spoken-language setting above and shows both suggested cut ranges and transcript text.
-                </p>
-                <p class="ai-content-status" data-ai-content-status hidden></p>
-                <div class="ai-content-results" data-ai-content-results hidden>
-                    <div class="ai-content-issues" data-ai-content-issues></div>
-                    <div class="ai-content-transcript">
-                        <div class="ai-content-transcript-head">
-                            <span>Transcript</span>
-                            <span class="ai-content-transcript-tag" data-ai-content-transcript-model hidden></span>
-                        </div>
-                        <div class="ai-content-transcript-body" data-ai-content-transcript-body></div>
-                    </div>
-                </div>
-            </section>
-            <div class="waveform-actions">
-                <div class="waveform-action-buttons">
-                    <button class="timeline-button" type="button" data-waveform-play disabled>Play audio (Space)</button>
-                    <button class="timeline-button" type="button" data-waveform-play-result disabled>Play result (R)</button>
-                    <button class="timeline-button" type="button" data-add-marker="in">Add in (A)</button>
-                    <button class="timeline-button" type="button" data-add-marker="out">Add out (S)</button>
-                </div>
-                <p class="waveform-help">
-                    Blue regions show automatic silence edits. Orange regions show manual cuts. Click the waveform to place the playhead, then play audio, preview the result, or add In and Out markers.
-                </p>
-            </div>
             <div class="waveform-viewport" data-waveform-viewport>
                 <div class="waveform-stage" data-waveform-stage>
                     <canvas class="waveform-canvas" data-waveform-canvas></canvas>
                     <div class="waveform-ai-overlay" data-ai-waveform-overlay></div>
                     <div class="waveform-ai-content-overlay" data-ai-content-waveform-overlay></div>
+                    <div class="waveform-ai-auto-overlay" data-ai-auto-waveform-overlay></div>
                     <div class="waveform-overlay" data-waveform-overlay></div>
                 </div>
             </div>
@@ -370,6 +289,200 @@
             <p class="marker-summary" data-marker-summary hidden></p>
             <div class="marker-list" data-marker-list hidden></div>
         </section>
+
+        <div class="workspace-tab-panel" data-workspace-panel="ai" hidden>
+        <section class="ai-disclaimer">
+            <div class="ai-disclaimer__head">
+                <p class="panel-kicker">AI (experimental)</p>
+                <strong>Review every cut before you trust it.</strong>
+            </div>
+            <p>
+                These tools can miss retakes, overcut good lines, hallucinate transcript details, or leave noise behind.
+                Use them as suggestions on top of the waveform, not as a final decision maker.
+            </p>
+        </section>
+
+        <section class="ai-suite-panel" data-ai-suite-panel hidden>
+            <div class="ai-suite-head">
+                <div>
+                    <p class="panel-kicker">AI assist</p>
+                    <strong>Find pauses and bad takes</strong>
+                </div>
+                <span class="ai-analysis-tag">@(Model.HasConfiguredOpenAiApiKey ? "Local key ready" : "Key required")</span>
+            </div>
+            <section
+                class="ai-analysis-panel ai-suite-block"
+                data-ai-default-key-available="@Model.HasConfiguredOpenAiApiKey.ToString().ToLowerInvariant()"
+                data-ai-default-model="@Model.DefaultOpenAiModel">
+                <div class="ai-suite-rowhead">
+                    <div>
+                        <p class="panel-kicker">Pauses</p>
+                        <strong>Transcript gap finder</strong>
+                    </div>
+                    <label class="field-toggle ai-analysis-toggle">
+                        <input class="field-toggle__input" type="checkbox" data-ai-enabled />
+                        <span class="field-toggle__label">On</span>
+                    </label>
+                </div>
+                <div class="ai-suite-main-grid">
+                    <label class="ai-analysis-field">
+                        <span>OpenAI API key</span>
+                        <input
+                            type="password"
+                            autocomplete="off"
+                            spellcheck="false"
+                            placeholder="@(Model.HasConfiguredOpenAiApiKey ? "Leave blank to use local key" : "sk-...")"
+                            data-ai-api-key />
+                    </label>
+                    <label class="ai-analysis-field">
+                        <span>Spoken language</span>
+                        <select data-ai-language>
+                            <option value="en">English</option>
+                            <option value="">Auto detect</option>
+                            <option value="sv">Swedish</option>
+                        </select>
+                    </label>
+                    <div class="ai-suite-actions">
+                        <button class="secondary-button" type="button" data-ai-analyze>
+                            <span class="ai-analysis-spinner" hidden aria-hidden="true"></span>
+                            <span data-ai-analyze-label>Find pauses</span>
+                        </button>
+                    </div>
+                </div>
+                <label class="ai-analysis-field ai-suite-hidden-field">
+                    <span>Model</span>
+                    <select data-ai-model>
+                        <option value="whisper-1">whisper-1</option>
+                    </select>
+                </label>
+                <button class="secondary-button ai-suite-hidden-action" type="button" data-ai-clear hidden>Clear pauses</button>
+                <p class="ai-analysis-status" data-ai-status hidden></p>
+            </section>
+            <section
+                class="ai-content-panel ai-suite-block"
+                data-ai-content-default-key-available="@Model.HasConfiguredOpenAiApiKey.ToString().ToLowerInvariant()">
+                <div class="ai-suite-rowhead">
+                    <div>
+                        <p class="panel-kicker">Retakes</p>
+                        <strong>Content-aware cut suggestions</strong>
+                    </div>
+                    <label class="field-toggle ai-content-toggle">
+                        <input class="field-toggle__input" type="checkbox" data-ai-content-enabled />
+                        <span class="field-toggle__label">Off</span>
+                    </label>
+                </div>
+                <div class="ai-suite-main-grid ai-suite-main-grid--retakes">
+                    <div class="ai-content-actions">
+                        <button class="secondary-button" type="button" data-ai-content-analyze>
+                            <span class="ai-analysis-spinner" hidden aria-hidden="true" data-ai-content-spinner></span>
+                            <span data-ai-content-analyze-label>Find retakes</span>
+                        </button>
+                        <button class="secondary-button" type="button" data-ai-content-add>Add cut</button>
+                        <button class="secondary-button" type="button" data-ai-content-delete-selected disabled>Delete cut</button>
+                    </div>
+                </div>
+                <details class="ai-suite-advanced">
+                    <summary>Advanced AI</summary>
+                    <div class="ai-content-grid">
+                        <label class="ai-content-field">
+                            <span>Analysis model</span>
+                            <select data-ai-content-model>
+                                <option value="gpt-5.2">gpt-5.2</option>
+                                <option value="gpt-5">gpt-5</option>
+                                <option value="gpt-5-mini">gpt-5-mini</option>
+                                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                            </select>
+                        </label>
+                        <label class="ai-content-field">
+                            <span>Confidence floor</span>
+                            <select data-ai-content-threshold>
+                                <option value="0">Show all</option>
+                                <option value="0.4">40%+</option>
+                                <option value="0.55" selected>55%+</option>
+                                <option value="0.7">70%+</option>
+                                <option value="0.85">85%+</option>
+                            </select>
+                        </label>
+                        <label class="ai-content-field">
+                            <span>Memory</span>
+                            <select data-ai-content-memory-mode>
+                                <option value="reuse" selected>Use learned memory</option>
+                                <option value="fresh">Fresh A2 only</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="ai-content-actions ai-content-actions--advanced">
+                        <button class="secondary-button" type="button" data-ai-content-forget-memory disabled>Forget clip memory</button>
+                        <button class="secondary-button" type="button" data-ai-content-clear hidden>Clear retakes</button>
+                    </div>
+                </details>
+                <p class="ai-content-threshold-summary" data-ai-content-threshold-summary hidden></p>
+                <p class="ai-content-status" data-ai-content-status hidden></p>
+                <p class="ai-content-feedback-status" data-ai-content-feedback-status hidden></p>
+                <div class="ai-content-results" data-ai-content-results hidden>
+                    <div class="ai-content-issues" data-ai-content-issues></div>
+                    <div class="ai-content-transcript">
+                        <div class="ai-content-transcript-head">
+                            <span>Transcript</span>
+                            <span class="ai-content-transcript-tag" data-ai-content-transcript-model hidden></span>
+                        </div>
+                        <div class="ai-content-transcript-body" data-ai-content-transcript-body></div>
+                    </div>
+                </div>
+            </section>
+            <section
+                class="ai-autocut-panel ai-suite-block"
+                data-ai-auto-default-key-available="@Model.HasConfiguredOpenAiApiKey.ToString().ToLowerInvariant()">
+                <div class="ai-suite-rowhead">
+                    <div>
+                        <p class="panel-kicker">A3</p>
+                        <strong>Auto cut to text</strong>
+                    </div>
+                    <label class="field-toggle ai-autocut-toggle">
+                        <input class="field-toggle__input" type="checkbox" data-ai-auto-enabled />
+                        <span class="field-toggle__label">Off</span>
+                    </label>
+                </div>
+                <div class="ai-autocut-grid">
+                    <label class="ai-autocut-field ai-autocut-field--script">
+                        <span>Target text</span>
+                        <textarea
+                            rows="4"
+                            spellcheck="false"
+                            placeholder="Optional. Leave blank and A3 will infer the clean final read from the clip."
+                            data-ai-auto-target-text></textarea>
+                    </label>
+                    <div class="ai-content-actions ai-autocut-actions">
+                        <button class="secondary-button" type="button" data-ai-auto-analyze>
+                            <span class="ai-analysis-spinner" hidden aria-hidden="true" data-ai-auto-spinner></span>
+                            <span data-ai-auto-analyze-label>Auto cut to text</span>
+                        </button>
+                        <button class="secondary-button" type="button" data-ai-auto-clear hidden>Clear A3</button>
+                    </div>
+                </div>
+                <p class="ai-auto-status" data-ai-auto-status hidden></p>
+                <div class="ai-auto-results" data-ai-auto-results hidden>
+                    <p class="ai-auto-summary" data-ai-auto-summary hidden></p>
+                    <div class="ai-content-transcript ai-auto-target">
+                        <div class="ai-content-transcript-head">
+                            <span>Target read</span>
+                            <span class="ai-content-transcript-tag" data-ai-auto-model hidden></span>
+                        </div>
+                        <div class="ai-content-transcript-body" data-ai-auto-target-body></div>
+                    </div>
+                    <div class="ai-content-transcript ai-auto-result">
+                        <div class="ai-content-transcript-head">
+                            <span>Result after cut</span>
+                        </div>
+                        <div class="ai-content-transcript-body" data-ai-auto-result-body></div>
+                    </div>
+                </div>
+            </section>
+            <p class="ai-suite-help">
+                Use Pauses to find quiet transcript gaps, Retakes to find abandoned reads and restarts, and A3 to build one combined cut plan toward the clean final read. Add or delete retake cuts directly on the waveform if the model misses one. Advanced AI keeps the confidence and memory controls out of the way until you need them.
+            </p>
+        </section>
+        </div>
 
         <div class="form-actions">
             <button class="submit-button" type="submit" disabled="@(!Model.FfmpegAvailable)">
@@ -429,6 +542,10 @@
                 <div>
                     <dt>Removed</dt>
                     <dd>@Model.FormatSeconds(Model.Result.RemovedDurationSeconds)</dd>
+                </div>
+                <div>
+                    <dt>Auto silence</dt>
+                    <dd>@Model.DescribeAutomaticSilenceAnalyzer(Model.Result.AutomaticSilenceAnalyzerUsed)</dd>
                 </div>
                 <div>
                     <dt>Edited ranges</dt>

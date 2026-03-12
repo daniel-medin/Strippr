@@ -4,7 +4,9 @@ artifacts/
 App_Data/uploads/
 App_Data/outputs/
 App_Data/temp/
+App_Data/feedback/
 tools/ffmpeg/package/
+tools/silero/*.onnx
 strippr-run.log
 strippr-dev.log
 strippr-dev.err.log

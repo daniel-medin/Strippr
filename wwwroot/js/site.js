@@ -1,4 +1,52 @@
 (() => {
+  const workspaceTabs = Array.from(document.querySelectorAll("[data-workspace-tab]"));
+  const workspacePanels = Array.from(document.querySelectorAll("[data-workspace-panel]"));
+  const workspaceTabStorageKey = "strippr.workspaceTab";
+
+  const activateWorkspaceTab = (tabName) => {
+    if (workspaceTabs.length === 0 || workspacePanels.length === 0) {
+      return;
+    }
+
+    const normalizedTabName = tabName === "ai" ? "ai" : "editor";
+    workspaceTabs.forEach((tab) => {
+      const isActive = tab.getAttribute("data-workspace-tab") === normalizedTabName;
+      tab.classList.toggle("is-active", isActive);
+      tab.setAttribute("aria-selected", isActive ? "true" : "false");
+    });
+
+    workspacePanels.forEach((panel) => {
+      panel.hidden = panel.getAttribute("data-workspace-panel") !== normalizedTabName;
+    });
+
+    try {
+      window.localStorage.setItem(workspaceTabStorageKey, normalizedTabName);
+    } catch {
+    }
+  };
+
+  if (workspaceTabs.length > 0 && workspacePanels.length > 0) {
+    let initialTab = "editor";
+    try {
+      initialTab = window.localStorage.getItem(workspaceTabStorageKey) || initialTab;
+    } catch {
+    }
+
+    activateWorkspaceTab(window.location.hash === "#ai" ? "ai" : initialTab);
+
+    workspaceTabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        const tabName = tab.getAttribute("data-workspace-tab") || "editor";
+        activateWorkspaceTab(tabName);
+        if (tabName === "ai") {
+          window.history.replaceState(null, "", "#ai");
+        } else if (window.location.hash) {
+          window.history.replaceState(null, "", window.location.pathname + window.location.search);
+        }
+      });
+    });
+  }
+
   const markExportConsumed = (trigger, message) => {
     const resultPanel = trigger instanceof HTMLElement
       ? trigger.closest("[data-result-panel]")

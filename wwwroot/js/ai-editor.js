@@ -90,7 +90,7 @@
   const setAnalyzingState = (value) => {
     isAnalyzing = value;
     spinner.hidden = !value;
-    analyzeLabel.textContent = value ? "Analyzing..." : "Analyze with AI";
+    analyzeLabel.textContent = value ? "Analyzing..." : "Find pauses";
     updateAnalyzeButtonState();
   };
 
@@ -252,7 +252,6 @@
   const syncAiBypassState = () => {
     syncToggleLabel();
     aiPanel.classList.toggle("is-bypassed", !isAiEnabled());
-    apiKeyInput.disabled = !isAiEnabled();
     modelSelect.disabled = !isAiEnabled();
     clearButton.disabled = !isAiEnabled();
 

@@ -5,4 +5,6 @@ public sealed record AiContentIssue(
     double EndSeconds,
     string Label,
     string Reason,
-    string Excerpt);
+    string Excerpt,
+    double Confidence,
+    bool IsLearned = false);

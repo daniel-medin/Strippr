@@ -14,6 +14,9 @@
   const pickFileButton = form.querySelector("[data-pick-file]");
   const fileNameDisplay = form.querySelector("[data-file-name]");
   const noiseInput = form.querySelector("input[name='Input.NoiseThreshold']");
+  const automaticSilenceAnalyzerSelect = form.querySelector("select[name='Input.AutomaticSilenceAnalyzer']");
+  const automaticSilenceDisplay = form.querySelector("[data-auto-silence-display]");
+  const automaticSilenceHelp = form.querySelector("[data-auto-silence-help]");
   const noiseSlider = form.querySelector("[data-noise-slider]");
   const noiseDisplay = form.querySelector("[data-noise-display]");
   const noiseToggle = form.querySelector("[data-setting-toggle='noise']");
@@ -47,6 +50,7 @@
   const emptyResultPanelTemplate = document.querySelector("[data-empty-result-panel-template]");
   const submitButton = form.querySelector("button[type='submit']");
   const waveformPanel = form.querySelector("[data-waveform-panel]");
+  const aiSuitePanel = form.querySelector("[data-ai-suite-panel]");
   const waveformViewport = form.querySelector("[data-waveform-viewport]");
   const waveformStage = form.querySelector("[data-waveform-stage]");
   const waveformCanvas = form.querySelector("[data-waveform-canvas]");
@@ -59,9 +63,13 @@
   const waveformHorizontalDisplay = form.querySelector("[data-waveform-horizontal-display]");
   const playAudioButton = form.querySelector("[data-waveform-play]");
   const playResultButton = form.querySelector("[data-waveform-play-result]");
+  const undoButton = form.querySelector("[data-waveform-undo]");
+  const redoButton = form.querySelector("[data-waveform-redo]");
   const manualCutRangesInput = form.querySelector("[data-manual-cut-ranges]");
   const aiCutRangesInput = form.querySelector("[data-ai-cut-ranges]");
   const aiContentCutRangesInput = form.querySelector("[data-ai-content-cut-ranges]");
+  const aiAutoCutRangesInput = form.querySelector("[data-ai-auto-cut-ranges]");
+  const automaticCutRangesInput = form.querySelector("[data-automatic-cut-ranges]");
   const markerSummary = form.querySelector("[data-marker-summary]");
   const markerList = form.querySelector("[data-marker-list]");
   const addMarkerButtons = Array.from(form.querySelectorAll("[data-add-marker]"));
@@ -86,6 +94,8 @@
   let manualMarkers = [];
   let aiCutRanges = [];
   let aiContentCutRanges = [];
+  let aiAutoCutRanges = [];
+  let automaticCutRanges = [];
   let decodedAudioBuffer = null;
   let previewAudio = null;
   let previewAudioUrl = null;
@@ -97,9 +107,18 @@
   let resultPlaybackFrameId = null;
   let detectedSilenceCacheKey = "";
   let detectedSilenceCache = [];
+  let automaticSilenceComparisonCacheKey = "";
+  let automaticSilenceComparison = null;
+  let automaticSilenceComparisonAbortController = null;
+  let automaticSilenceComparisonTimerId = null;
+  let autoCutDragState = null;
+  let historyPast = [];
+  let historyFuture = [];
+  let isApplyingHistory = false;
   let defaultState = null;
 
   const minimumKeepSegmentSeconds = 0.15;
+  const minimumAutomaticCutSeconds = 0.03;
 
   const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
   const getWaveformWidth = () => waveformCanvas ? waveformCanvas.clientWidth || Number.parseFloat(waveformCanvas.style.width) || 0 : 0;
@@ -143,6 +162,39 @@
     return match ? Number.parseFloat(match[1]) : null;
   };
 
+  const normalizeAutomaticSilenceAnalyzer = (value) => {
+    const normalizedValue = `${value ?? ""}`.trim().toLowerCase();
+    return normalizedValue === "silero" || normalizedValue === "hybrid"
+      ? normalizedValue
+      : "ffmpeg";
+  };
+
+  const getSelectedAutomaticSilenceAnalyzer = () => normalizeAutomaticSilenceAnalyzer(
+    automaticSilenceAnalyzerSelect instanceof HTMLSelectElement
+      ? automaticSilenceAnalyzerSelect.value
+      : "ffmpeg",
+  );
+
+  const syncAutomaticSilenceControls = () => {
+    const selectedAnalyzer = getSelectedAutomaticSilenceAnalyzer();
+
+    if (automaticSilenceDisplay instanceof HTMLElement) {
+      automaticSilenceDisplay.textContent = selectedAnalyzer === "silero"
+        ? "Silero VAD"
+        : selectedAnalyzer === "hybrid"
+          ? "Hybrid"
+          : "FFmpeg";
+    }
+
+    if (automaticSilenceHelp instanceof HTMLElement) {
+      automaticSilenceHelp.textContent = selectedAnalyzer === "silero"
+        ? "Silero VAD cuts parts the model hears as non-speech, not just what is quiet."
+        : selectedAnalyzer === "hybrid"
+          ? "Hybrid only cuts gaps both FFmpeg and Silero agree on, so it is the safer middle ground."
+          : "FFmpeg cuts audio that stays below the noise threshold for at least the minimum silence time.";
+    }
+  };
+
   const setProgress = (value, text) => {
     progressValue = clamp(value, 0, 100);
     processingFill.style.width = `${progressValue}%`;
@@ -151,6 +203,52 @@
 
     if (text) {
       processingLabel.textContent = text;
+    }
+  };
+
+  const cloneManualMarkers = (markers) => markers.map((marker) => ({
+    id: marker.id,
+    type: marker.type,
+    timeSeconds: marker.timeSeconds,
+  }));
+
+  const cloneRanges = (ranges) => ranges.map((range) => ({
+    startSeconds: range.startSeconds,
+    endSeconds: range.endSeconds,
+  }));
+
+  const createEditorHistorySnapshot = () => ({
+    manualMarkers: cloneManualMarkers(manualMarkers),
+    markerSequence,
+    selectedMarkerId,
+    playheadSeconds,
+    automaticCutRanges: cloneRanges(automaticCutRanges),
+  });
+
+  const serializeEditorHistorySnapshot = (snapshot) => JSON.stringify({
+    manualMarkers: snapshot.manualMarkers.map((marker) => ({
+      id: marker.id,
+      type: marker.type,
+      timeSeconds: Number(marker.timeSeconds.toFixed(6)),
+    })),
+    markerSequence: snapshot.markerSequence,
+    selectedMarkerId: snapshot.selectedMarkerId,
+    playheadSeconds: snapshot.playheadSeconds === null
+      ? null
+      : Number(snapshot.playheadSeconds.toFixed(6)),
+    automaticCutRanges: snapshot.automaticCutRanges.map((range) => ({
+      startSeconds: Number(range.startSeconds.toFixed(6)),
+      endSeconds: Number(range.endSeconds.toFixed(6)),
+    })),
+  });
+
+  const updateHistoryButtons = () => {
+    if (undoButton instanceof HTMLButtonElement) {
+      undoButton.disabled = historyPast.length <= 1;
+    }
+
+    if (redoButton instanceof HTMLButtonElement) {
+      redoButton.disabled = historyFuture.length === 0;
     }
   };
 
@@ -196,13 +294,13 @@
 
   const captureDefaultState = () => ({
     noiseSlider: form.dataset.defaultNoiseThreshold || "-30",
-    noiseToggle: false,
+    noiseToggle: true,
     silenceSlider: form.dataset.defaultMinimumSilence || "0.5",
-    silenceToggle: false,
+    silenceToggle: true,
     retainedSilenceSlider: form.dataset.defaultRetainedSilence || "0",
     retainedSilenceToggle: false,
     cutHandleSlider: form.dataset.defaultCutHandles || "120",
-    cutHandleToggle: false,
+    cutHandleToggle: true,
     crossfadeSlider: form.dataset.defaultCrossfade || "80",
     crossfadeToggle: false,
     videoCrossfadeSlider: form.dataset.defaultVideoCrossfade || "0",
@@ -344,6 +442,7 @@
     });
 
     stopResultPreview();
+    clearAutomaticCutOverrides();
     syncAllProcessingControls();
     drawWaveform();
   };
@@ -376,6 +475,27 @@
         hidden: Boolean(waveformPanel?.hidden),
       },
     }));
+  };
+
+  const clearAutomaticSilenceComparisonTimer = () => {
+    if (automaticSilenceComparisonTimerId) {
+      window.clearTimeout(automaticSilenceComparisonTimerId);
+      automaticSilenceComparisonTimerId = null;
+    }
+  };
+
+  const cancelAutomaticSilenceComparisonRequest = () => {
+    if (automaticSilenceComparisonAbortController) {
+      automaticSilenceComparisonAbortController.abort();
+      automaticSilenceComparisonAbortController = null;
+    }
+  };
+
+  const clearAutomaticSilenceComparison = () => {
+    clearAutomaticSilenceComparisonTimer();
+    cancelAutomaticSilenceComparisonRequest();
+    automaticSilenceComparisonCacheKey = "";
+    automaticSilenceComparison = null;
   };
 
   const getSliderRatio = (slider) => {
@@ -515,6 +635,7 @@
   };
 
   const syncAllProcessingControls = () => {
+    syncAutomaticSilenceControls();
     syncBypassStates();
     syncNoiseControls();
     syncSilenceControls();
@@ -688,6 +809,155 @@
     return Number.parseFloat(silenceSlider.value);
   };
 
+  const buildAutomaticSilenceComparisonCacheKey = () => {
+    const file = fileInput?.files?.[0];
+    if (!file || !decodedAudioBuffer) {
+      return "";
+    }
+
+    const thresholdDb = parseThresholdDb();
+    return [
+      waveformToken,
+      file.name,
+      file.size,
+      file.lastModified,
+      thresholdDb === null ? "invalid" : thresholdDb.toFixed(1),
+      getMinimumSilenceSeconds().toFixed(3),
+    ].join("|");
+  };
+
+  const buildHybridSilenceRanges = (ffmpegRanges, sileroRanges) => {
+    const hybridRanges = [];
+    let sileroIndex = 0;
+
+    ffmpegRanges.forEach((ffmpegRange) => {
+      while (sileroIndex < sileroRanges.length && sileroRanges[sileroIndex].endSeconds <= ffmpegRange.startSeconds) {
+        sileroIndex += 1;
+      }
+
+      let currentSileroIndex = sileroIndex;
+      while (currentSileroIndex < sileroRanges.length && sileroRanges[currentSileroIndex].startSeconds < ffmpegRange.endSeconds) {
+        const sileroRange = sileroRanges[currentSileroIndex];
+        const overlapStart = Math.max(ffmpegRange.startSeconds, sileroRange.startSeconds);
+        const overlapEnd = Math.min(ffmpegRange.endSeconds, sileroRange.endSeconds);
+
+        if (overlapEnd > overlapStart) {
+          hybridRanges.push({ startSeconds: overlapStart, endSeconds: overlapEnd });
+        }
+
+        currentSileroIndex += 1;
+      }
+    });
+
+    return hybridRanges;
+  };
+
+  const getAutomaticSilenceRangesFromComparison = (comparison, analyzer) => {
+    if (!comparison || typeof comparison !== "object") {
+      return null;
+    }
+
+    const ffmpegRanges = Array.isArray(comparison.ffmpegSilenceIntervals)
+      ? comparison.ffmpegSilenceIntervals
+      : [];
+    const sileroRanges = comparison.silero && Array.isArray(comparison.silero.silenceIntervals)
+      ? comparison.silero.silenceIntervals
+      : [];
+
+    switch (normalizeAutomaticSilenceAnalyzer(analyzer)) {
+      case "silero":
+        return sileroRanges;
+      case "hybrid":
+        return buildHybridSilenceRanges(ffmpegRanges, sileroRanges);
+      default:
+        return ffmpegRanges;
+    }
+  };
+
+  const refreshAutomaticSilenceComparison = async ({ force = false } = {}) => {
+    const comparisonKey = buildAutomaticSilenceComparisonCacheKey();
+    if (!comparisonKey || !isAutomaticSilenceEnabled()) {
+      return;
+    }
+
+    if (!force && automaticSilenceComparisonCacheKey === comparisonKey && automaticSilenceComparison) {
+      return;
+    }
+
+    const file = fileInput?.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    clearAutomaticSilenceComparisonTimer();
+    cancelAutomaticSilenceComparisonRequest();
+
+    const controller = new AbortController();
+    automaticSilenceComparisonAbortController = controller;
+
+    const formData = new FormData();
+    formData.append("video", file);
+    if (noiseInput?.value) {
+      formData.append("noiseThreshold", noiseInput.value);
+    }
+
+    formData.append("minimumSilenceSeconds", getMinimumSilenceSeconds().toString());
+
+    try {
+      const response = await fetch("/api/silero/compare", {
+        method: "POST",
+        body: formData,
+        signal: controller.signal,
+      });
+      const payload = await response.json().catch(() => null);
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      if (!response.ok || !payload || payload.success !== true) {
+        throw new Error(payload && payload.message ? payload.message : "Automatic silence comparison failed.");
+      }
+
+      if (buildAutomaticSilenceComparisonCacheKey() !== comparisonKey) {
+        return;
+      }
+
+      automaticSilenceComparisonCacheKey = comparisonKey;
+      automaticSilenceComparison = payload;
+      detectedSilenceCacheKey = "";
+      drawWaveform();
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      automaticSilenceComparisonCacheKey = "";
+      automaticSilenceComparison = null;
+      detectedSilenceCacheKey = "";
+      if (error instanceof Error) {
+        console.warn(error.message);
+      }
+
+      drawWaveform();
+    } finally {
+      if (automaticSilenceComparisonAbortController === controller) {
+        automaticSilenceComparisonAbortController = null;
+      }
+    }
+  };
+
+  const scheduleAutomaticSilenceComparisonRefresh = ({ immediate = false, force = false } = {}) => {
+    const file = fileInput?.files?.[0];
+    if (!file || !decodedAudioBuffer || !isAutomaticSilenceEnabled()) {
+      return;
+    }
+
+    clearAutomaticSilenceComparisonTimer();
+    automaticSilenceComparisonTimerId = window.setTimeout(() => {
+      refreshAutomaticSilenceComparison({ force }).catch(() => {});
+    }, immediate ? 0 : 450);
+  };
+
   const getCrossfadeMilliseconds = () => {
     if (!crossfadeSlider || !isCrossfadeEnabled()) {
       return 0;
@@ -854,11 +1124,34 @@
       return [];
     }
 
+    const selectedAnalyzer = getSelectedAutomaticSilenceAnalyzer();
     const thresholdDb = parseThresholdDb();
     const minimumSilenceSeconds = getMinimumSilenceSeconds();
-    const cacheKey = `${waveformToken}|${ignoreAutomaticBypass ? "ignore-bypass" : "respect-bypass"}|auto-on|${thresholdDb ?? "invalid"}|${minimumSilenceSeconds.toFixed(3)}`;
+    const comparisonKey = buildAutomaticSilenceComparisonCacheKey();
+    const comparisonRanges = automaticSilenceComparisonCacheKey === comparisonKey
+      ? getAutomaticSilenceRangesFromComparison(automaticSilenceComparison, selectedAnalyzer)
+      : null;
+
+    if (Array.isArray(comparisonRanges)) {
+      const serverCacheKey = `${waveformToken}|${ignoreAutomaticBypass ? "ignore-bypass" : "respect-bypass"}|auto-on|server|${selectedAnalyzer}|${comparisonKey}`;
+      if (detectedSilenceCacheKey === serverCacheKey) {
+        return detectedSilenceCache;
+      }
+
+      detectedSilenceCacheKey = serverCacheKey;
+      detectedSilenceCache = normalizeRemovedRanges(decodedAudioBuffer.duration, comparisonRanges);
+      return detectedSilenceCache;
+    }
+
+    const cacheKey = `${waveformToken}|${ignoreAutomaticBypass ? "ignore-bypass" : "respect-bypass"}|auto-on|local|${selectedAnalyzer}|${thresholdDb ?? "invalid"}|${minimumSilenceSeconds.toFixed(3)}`;
     if (detectedSilenceCacheKey === cacheKey) {
       return detectedSilenceCache;
+    }
+
+    if (selectedAnalyzer !== "ffmpeg") {
+      detectedSilenceCacheKey = cacheKey;
+      detectedSilenceCache = [];
+      return [];
     }
 
     const sampleRate = decodedAudioBuffer.sampleRate;
@@ -1003,6 +1296,27 @@
       .filter((range) => range.endSeconds > range.startSeconds);
   };
 
+  const getBaseAutomaticCutRanges = () => {
+    if (!decodedAudioBuffer) {
+      return [];
+    }
+
+    return normalizeRemovedRanges(
+      decodedAudioBuffer.duration,
+      applyCutHandles(detectSilenceRanges(), getCutHandleSeconds()),
+    );
+  };
+
+  const getEffectiveAutomaticCutRanges = () => {
+    if (!decodedAudioBuffer || !isAutomaticSilenceEnabled()) {
+      return [];
+    }
+
+    return automaticCutRanges.length > 0
+      ? normalizeRemovedRanges(decodedAudioBuffer.duration, automaticCutRanges)
+      : getBaseAutomaticCutRanges();
+  };
+
   const buildResultPreviewSegments = () => {
     if (!decodedAudioBuffer) {
       return [];
@@ -1011,13 +1325,9 @@
     const durationSeconds = decodedAudioBuffer.duration;
     const pauseSpeedMultiplier = getPauseSpeedMultiplier();
     const retainedSilenceSeconds = getRetainedSilenceSeconds();
-    const cutHandleSeconds = getCutHandleSeconds();
     const manualRanges = normalizeRemovedRanges(durationSeconds, buildManualCutRanges().ranges);
-    const explicitRanges = normalizeRemovedRanges(durationSeconds, manualRanges.concat(aiCutRanges, aiContentCutRanges));
-    const silenceRanges = normalizeRemovedRanges(
-      durationSeconds,
-      applyCutHandles(detectSilenceRanges(), cutHandleSeconds),
-    );
+    const explicitRanges = normalizeRemovedRanges(durationSeconds, manualRanges.concat(aiCutRanges, aiContentCutRanges, aiAutoCutRanges));
+    const silenceRanges = getEffectiveAutomaticCutRanges();
 
     if (pauseSpeedMultiplier <= 1 && retainedSilenceSeconds <= 0) {
       const removedRanges = normalizeRemovedRanges(durationSeconds, silenceRanges.concat(explicitRanges));
@@ -1111,14 +1421,9 @@
       return [];
     }
 
-    const durationSeconds = decodedAudioBuffer.duration;
     const pauseSpeedMultiplier = getPauseSpeedMultiplier();
     const retainedSilenceSeconds = getRetainedSilenceSeconds();
-    const cutHandleSeconds = getCutHandleSeconds();
-    const silenceRanges = normalizeRemovedRanges(
-      durationSeconds,
-      applyCutHandles(detectSilenceRanges(), cutHandleSeconds),
-    );
+    const silenceRanges = getEffectiveAutomaticCutRanges();
     const automaticRanges = subtractRanges(silenceRanges, explicitRanges);
     const isHardCut = pauseSpeedMultiplier <= 1 && retainedSilenceSeconds <= 0;
 
@@ -1147,7 +1452,7 @@
   const buildWaveformCompressionPreviewRanges = (manualRanges) => {
     const explicitRanges = normalizeRemovedRanges(
       waveformDurationSeconds,
-      manualRanges.concat(aiCutRanges, aiContentCutRanges),
+      manualRanges.concat(aiCutRanges, aiContentCutRanges, aiAutoCutRanges),
     );
     const sourceRanges = buildAutomaticEditRanges(explicitRanges);
 
@@ -1190,6 +1495,13 @@
         retainedTargetX: startX + Math.max(0, (width - retainedTargetWidth) / 2),
       };
     });
+  };
+
+  const applyAutomaticOverlayRegionLayout = (region, range) => {
+    const startX = secondsToX(range.startSeconds);
+    const endX = secondsToX(range.endSeconds);
+    region.style.left = `${startX}px`;
+    region.style.width = `${Math.max(2, endX - startX)}px`;
   };
 
   const renderMarkerList = (orderedMarkers) => {
@@ -1249,11 +1561,15 @@
     const { orderedMarkers, ranges } = buildManualCutRanges();
     const automaticRanges = buildWaveformCompressionPreviewRanges(ranges);
 
-    automaticRanges.forEach((range) => {
+    automaticRanges.forEach((range, index) => {
       const region = document.createElement("div");
       region.className = `waveform-auto-region ${range.isHardCut ? "is-hard-cut" : "is-compressed"}`;
-      region.style.left = `${range.startX}px`;
-      region.style.width = `${range.width}px`;
+      if (automaticCutRanges.length > 0) {
+        region.classList.add("is-adjusted");
+      }
+      region.setAttribute("data-automatic-cut-range", "");
+      region.setAttribute("data-range-index", `${index}`);
+      applyAutomaticOverlayRegionLayout(region, range);
 
       if (!range.isHardCut && range.compressionRatio < 0.995) {
         if (range.pauseSpeedTargetDurationSeconds !== null && range.pauseSpeedTargetRatio < 0.995) {
@@ -1292,6 +1608,16 @@
           region.appendChild(label);
         }
       }
+
+      ["start", "end"].forEach((edge) => {
+        const handle = document.createElement("button");
+        handle.type = "button";
+        handle.className = `waveform-auto-handle is-${edge}`;
+        handle.setAttribute("data-automatic-cut-handle", edge);
+        handle.setAttribute("data-range-index", `${index}`);
+        handle.setAttribute("aria-label", `Adjust automatic cut ${edge}`);
+        region.appendChild(handle);
+      });
 
       waveformOverlay.appendChild(region);
     });
@@ -1336,6 +1662,84 @@
     updateMarkerSummary(ranges, unpairedCount);
     renderMarkerList(orderedMarkers);
     drawWaveform();
+  };
+
+  const commitEditorHistorySnapshot = () => {
+    if (isApplyingHistory) {
+      return;
+    }
+
+    const snapshot = createEditorHistorySnapshot();
+    const serializedSnapshot = serializeEditorHistorySnapshot(snapshot);
+    const lastSnapshot = historyPast.length > 0
+      ? serializeEditorHistorySnapshot(historyPast[historyPast.length - 1])
+      : null;
+
+    if (serializedSnapshot === lastSnapshot) {
+      updateHistoryButtons();
+      return;
+    }
+
+    historyPast.push(snapshot);
+    if (historyPast.length > 80) {
+      historyPast.shift();
+    }
+
+    historyFuture = [];
+    updateHistoryButtons();
+  };
+
+  const restoreEditorHistorySnapshot = (snapshot) => {
+    isApplyingHistory = true;
+    try {
+      manualMarkers = cloneManualMarkers(snapshot.manualMarkers);
+      markerSequence = snapshot.markerSequence;
+      selectedMarkerId = snapshot.selectedMarkerId;
+      playheadSeconds = snapshot.playheadSeconds;
+      dragMarkerId = null;
+      autoCutDragState = null;
+      setAutomaticCutRanges(snapshot.automaticCutRanges);
+      syncManualCutRangesInput();
+    } finally {
+      isApplyingHistory = false;
+      updateHistoryButtons();
+    }
+  };
+
+  const resetEditorHistory = () => {
+    historyPast = [createEditorHistorySnapshot()];
+    historyFuture = [];
+    updateHistoryButtons();
+  };
+
+  const undoEditorHistory = () => {
+    if (historyPast.length <= 1) {
+      updateHistoryButtons();
+      return;
+    }
+
+    const currentSnapshot = historyPast.pop();
+    if (currentSnapshot) {
+      historyFuture.push(currentSnapshot);
+    }
+
+    restoreEditorHistorySnapshot(historyPast[historyPast.length - 1]);
+  };
+
+  const redoEditorHistory = () => {
+    if (historyFuture.length === 0) {
+      updateHistoryButtons();
+      return;
+    }
+
+    const nextSnapshot = historyFuture.pop();
+    if (!nextSnapshot) {
+      updateHistoryButtons();
+      return;
+    }
+
+    historyPast.push(nextSnapshot);
+    restoreEditorHistorySnapshot(nextSnapshot);
   };
 
   const resetManualCuts = () => {
@@ -1395,14 +1799,54 @@
     return previousKey !== nextKey;
   };
 
+  const setAiAutoCutRanges = (ranges) => {
+    const nextAiAutoCutRanges = waveformDurationSeconds > 0
+      ? normalizeRemovedRanges(waveformDurationSeconds, ranges)
+      : [];
+    const previousKey = serializeRanges(aiAutoCutRanges);
+    const nextKey = serializeRanges(nextAiAutoCutRanges);
+    aiAutoCutRanges = nextAiAutoCutRanges;
+
+    if (aiAutoCutRangesInput instanceof HTMLInputElement) {
+      aiAutoCutRangesInput.value = nextKey;
+    }
+
+    return previousKey !== nextKey;
+  };
+
+  const setAutomaticCutRanges = (ranges) => {
+    const nextAutomaticCutRanges = waveformDurationSeconds > 0
+      ? normalizeRemovedRanges(waveformDurationSeconds, ranges)
+      : [];
+    const previousKey = serializeRanges(automaticCutRanges);
+    const nextKey = serializeRanges(nextAutomaticCutRanges);
+    automaticCutRanges = nextAutomaticCutRanges;
+
+    if (automaticCutRangesInput instanceof HTMLInputElement) {
+      automaticCutRangesInput.value = nextKey;
+    }
+
+    return previousKey !== nextKey;
+  };
+
+  const clearAutomaticCutOverrides = ({ redraw = false } = {}) => {
+    autoCutDragState = null;
+    const didChange = setAutomaticCutRanges([]);
+    if (redraw && didChange) {
+      drawWaveform();
+    }
+  };
+
   const resetEditor = () => {
     waveformToken += 1;
     detectedSilenceCacheKey = "";
     detectedSilenceCache = [];
     disposePreviewAudio();
     resetManualCuts();
+    clearAutomaticCutOverrides();
     setAiCutRanges([]);
     setAiContentCutRanges([]);
+    setAiAutoCutRanges([]);
     waveformDurationSeconds = 0;
     waveformPeaks = null;
     playheadSeconds = null;
@@ -1412,6 +1856,8 @@
     if (fileInput) {
       fileInput.value = "";
     }
+
+    clearAutomaticSilenceComparison();
 
     syncSelectedFileName();
 
@@ -1502,6 +1948,10 @@
       waveformPanel.hidden = true;
     }
 
+    if (aiSuitePanel) {
+      aiSuitePanel.hidden = true;
+    }
+
     if (waveformStatus) {
       waveformStatus.textContent = "Choose a video file to analyze its audio.";
     }
@@ -1513,6 +1963,7 @@
     resetResultPanel();
     syncPlaybackButtons();
     emitWaveformStateChanged();
+    resetEditorHistory();
     form.dispatchEvent(new CustomEvent("strippr:editor-reset"));
   };
 
@@ -1538,6 +1989,7 @@
     manualMarkers.push(marker);
     selectedMarkerId = marker.id;
     syncManualCutRangesInput();
+    commitEditorHistorySnapshot();
   };
 
   const removeMarker = (markerId) => {
@@ -1551,6 +2003,7 @@
     }
 
     syncManualCutRangesInput();
+    commitEditorHistorySnapshot();
   };
 
   const updateMarkerTime = (markerId, timeSeconds) => {
@@ -1562,6 +2015,82 @@
 
     selectedMarkerId = markerId;
     syncManualCutRangesInput();
+  };
+
+  const beginAutomaticCutDrag = (event, handle) => {
+    if (!(handle instanceof HTMLElement) || waveformDurationSeconds <= 0 || !isAutomaticSilenceEnabled()) {
+      return;
+    }
+
+    const rangeIndex = Number.parseInt(handle.dataset.rangeIndex || "", 10);
+    const edge = handle.dataset.automaticCutHandle;
+    if (!Number.isInteger(rangeIndex) || (edge !== "start" && edge !== "end")) {
+      return;
+    }
+
+    if (automaticCutRanges.length === 0) {
+      setAutomaticCutRanges(getBaseAutomaticCutRanges());
+    }
+
+    const range = automaticCutRanges[rangeIndex];
+    if (!range) {
+      return;
+    }
+
+    autoCutDragState = {
+      rangeIndex,
+      edge,
+      pointerId: "pointerId" in event ? event.pointerId : null,
+      captureElement: handle,
+    };
+
+    if ("pointerId" in event && typeof event.pointerId === "number") {
+      handle.setPointerCapture?.(event.pointerId);
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  const applyAutomaticCutDrag = (event) => {
+    if (!autoCutDragState || waveformDurationSeconds <= 0 || automaticCutRanges.length === 0 || !waveformStage) {
+      return;
+    }
+
+    const range = automaticCutRanges[autoCutDragState.rangeIndex];
+    if (!range) {
+      return;
+    }
+
+    const bounds = waveformStage.getBoundingClientRect();
+    const nextSeconds = xToSeconds(event.clientX - bounds.left);
+    if (autoCutDragState.edge === "start") {
+      range.startSeconds = clamp(nextSeconds, 0, range.endSeconds - minimumAutomaticCutSeconds);
+    } else {
+      range.endSeconds = clamp(nextSeconds, range.startSeconds + minimumAutomaticCutSeconds, waveformDurationSeconds);
+    }
+
+    setAutomaticCutRanges(automaticCutRanges);
+
+    const region = waveformOverlay?.querySelector(`[data-automatic-cut-range][data-range-index="${autoCutDragState.rangeIndex}"]`);
+    if (region instanceof HTMLElement) {
+      applyAutomaticOverlayRegionLayout(region, range);
+    }
+  };
+
+  const finishAutomaticCutDrag = () => {
+    if (!autoCutDragState) {
+      return;
+    }
+
+    if (typeof autoCutDragState.pointerId === "number") {
+      autoCutDragState.captureElement.releasePointerCapture?.(autoCutDragState.pointerId);
+    }
+
+    autoCutDragState = null;
+    stopResultPreview();
+    drawWaveform();
+    commitEditorHistorySnapshot();
   };
 
   const placePlayheadFromClientX = (clientX) => {
@@ -1727,6 +2256,8 @@
     const token = ++waveformToken;
     detectedSilenceCacheKey = "";
     detectedSilenceCache = [];
+    clearAutomaticSilenceComparison();
+    clearAutomaticCutOverrides();
     updateThresholdReadout();
     resetManualCuts();
     waveformDurationSeconds = 0;
@@ -1736,12 +2267,19 @@
     if (!file) {
       disposePreviewAudio();
       waveformPanel.hidden = true;
+      if (aiSuitePanel) {
+        aiSuitePanel.hidden = true;
+      }
       emitWaveformStateChanged();
+      resetEditorHistory();
       return;
     }
 
     initializePreviewAudio(file);
     waveformPanel.hidden = false;
+    if (aiSuitePanel) {
+      aiSuitePanel.hidden = false;
+    }
     waveformStatus.textContent = "Analyzing local audio track...";
     const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextCtor) {
@@ -1771,6 +2309,8 @@
       setMarkerButtonsEnabled(true);
       syncPlaybackButtons();
       drawWaveform();
+      resetEditorHistory();
+      scheduleAutomaticSilenceComparisonRefresh({ immediate: true, force: true });
     } catch {
       disposePreviewAudio();
       waveformDurationSeconds = 0;
@@ -1779,6 +2319,7 @@
       waveformStatus.textContent = "Could not decode audio from this file in the browser.";
       renderWaveformOverlay();
       emitWaveformStateChanged();
+      resetEditorHistory();
     } finally {
       if (audioContext) {
         audioContext.close().catch(() => {});
@@ -1786,6 +2327,7 @@
     }
   };
 
+  syncAutomaticSilenceControls();
   syncBypassStates();
 
   if (noiseInput && noiseSlider) {
@@ -1797,17 +2339,31 @@
     syncNoiseControls();
     noiseSlider.addEventListener("input", () => {
       stopResultPreview();
+      clearAutomaticCutOverrides();
       syncNoiseControls();
       updateThresholdReadout();
       drawWaveform();
+      if (getSelectedAutomaticSilenceAnalyzer() !== "ffmpeg") {
+        automaticSilenceComparisonCacheKey = "";
+        automaticSilenceComparison = null;
+        detectedSilenceCacheKey = "";
+        scheduleAutomaticSilenceComparisonRefresh();
+      }
     });
   }
 
   if (noiseToggle instanceof HTMLInputElement) {
     noiseToggle.addEventListener("change", () => {
       stopResultPreview();
+      clearAutomaticCutOverrides();
       syncAllProcessingControls();
       drawWaveform();
+      if (getSelectedAutomaticSilenceAnalyzer() !== "ffmpeg") {
+        automaticSilenceComparisonCacheKey = "";
+        automaticSilenceComparison = null;
+        detectedSilenceCacheKey = "";
+        scheduleAutomaticSilenceComparisonRefresh({ immediate: true, force: true });
+      }
     });
   }
 
@@ -1815,16 +2371,41 @@
     syncSilenceControls();
     silenceSlider.addEventListener("input", () => {
       stopResultPreview();
+      clearAutomaticCutOverrides();
       syncSilenceControls();
       drawWaveform();
+      if (getSelectedAutomaticSilenceAnalyzer() !== "ffmpeg") {
+        automaticSilenceComparisonCacheKey = "";
+        automaticSilenceComparison = null;
+        detectedSilenceCacheKey = "";
+        scheduleAutomaticSilenceComparisonRefresh();
+      }
     });
   }
 
   if (silenceToggle instanceof HTMLInputElement) {
     silenceToggle.addEventListener("change", () => {
       stopResultPreview();
+      clearAutomaticCutOverrides();
       syncAllProcessingControls();
       drawWaveform();
+      if (getSelectedAutomaticSilenceAnalyzer() !== "ffmpeg") {
+        automaticSilenceComparisonCacheKey = "";
+        automaticSilenceComparison = null;
+        detectedSilenceCacheKey = "";
+        scheduleAutomaticSilenceComparisonRefresh({ immediate: true, force: true });
+      }
+    });
+  }
+
+  if (automaticSilenceAnalyzerSelect instanceof HTMLSelectElement) {
+    automaticSilenceAnalyzerSelect.addEventListener("change", () => {
+      stopResultPreview();
+      clearAutomaticCutOverrides();
+      syncAutomaticSilenceControls();
+      detectedSilenceCacheKey = "";
+      drawWaveform();
+      scheduleAutomaticSilenceComparisonRefresh({ immediate: true, force: true });
     });
   }
 
@@ -1849,6 +2430,7 @@
     syncCutHandleControls();
     cutHandleSlider.addEventListener("input", () => {
       stopResultPreview();
+      clearAutomaticCutOverrides();
       syncCutHandleControls();
       drawWaveform();
     });
@@ -1857,6 +2439,7 @@
   if (cutHandleToggle instanceof HTMLInputElement) {
     cutHandleToggle.addEventListener("change", () => {
       stopResultPreview();
+      clearAutomaticCutOverrides();
       syncAllProcessingControls();
       drawWaveform();
     });
@@ -2068,7 +2651,7 @@
   if (waveformStage) {
     waveformStage.addEventListener("click", (event) => {
       const target = event.target;
-      if (target instanceof HTMLElement && target.closest("[data-marker-id]")) {
+      if (target instanceof HTMLElement && (target.closest("[data-marker-id]") || target.closest("[data-automatic-cut-handle]"))) {
         return;
       }
 
@@ -2080,6 +2663,12 @@
     waveformOverlay.addEventListener("click", (event) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) {
+        return;
+      }
+
+      if (target.closest("[data-automatic-cut-handle]")) {
+        event.preventDefault();
+        event.stopPropagation();
         return;
       }
 
@@ -2114,6 +2703,12 @@
         return;
       }
 
+      const automaticHandle = target.closest("[data-automatic-cut-handle]");
+      if (automaticHandle instanceof HTMLElement) {
+        beginAutomaticCutDrag(event, automaticHandle);
+        return;
+      }
+
       const markerButton = target.closest("[data-marker-id]");
       if (!markerButton) {
         return;
@@ -2128,6 +2723,7 @@
   }
 
   window.addEventListener("pointermove", (event) => {
+    applyAutomaticCutDrag(event);
     if (!dragMarkerId || !waveformStage) {
       return;
     }
@@ -2137,6 +2733,10 @@
   });
 
   window.addEventListener("pointerup", () => {
+    finishAutomaticCutDrag();
+    if (dragMarkerId) {
+      commitEditorHistorySnapshot();
+    }
     dragMarkerId = null;
   });
 
@@ -2149,6 +2749,21 @@
       (document.activeElement instanceof HTMLElement && document.activeElement.isContentEditable)
     ) {
       return;
+    }
+
+    if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+      const key = event.key.toLowerCase();
+      if (key === "z" && !event.shiftKey) {
+        event.preventDefault();
+        undoEditorHistory();
+        return;
+      }
+
+      if (key === "y" || (key === "z" && event.shiftKey)) {
+        event.preventDefault();
+        redoEditorHistory();
+        return;
+      }
     }
 
     if (event.key === " " || event.code === "Space") {
@@ -2246,6 +2861,18 @@
     });
   }
 
+  if (undoButton instanceof HTMLButtonElement) {
+    undoButton.addEventListener("click", () => {
+      undoEditorHistory();
+    });
+  }
+
+  if (redoButton instanceof HTMLButtonElement) {
+    redoButton.addEventListener("click", () => {
+      redoEditorHistory();
+    });
+  }
+
   fileInput.addEventListener("change", () => {
     syncSelectedFileName();
     resetResultPanel();
@@ -2268,6 +2895,18 @@
     const detail = event.detail || {};
     const nextAiContentRanges = Array.isArray(detail.ranges) ? detail.ranges : [];
     const didChange = setAiContentCutRanges(nextAiContentRanges);
+    if (!didChange) {
+      return;
+    }
+
+    stopResultPreview();
+    drawWaveform();
+  });
+
+  form.addEventListener("strippr:ai-auto-ranges-changed", (event) => {
+    const detail = event.detail || {};
+    const nextAiAutoRanges = Array.isArray(detail.ranges) ? detail.ranges : [];
+    const didChange = setAiAutoCutRanges(nextAiAutoRanges);
     if (!didChange) {
       return;
     }
@@ -2300,6 +2939,7 @@
 
   updateThresholdReadout();
   resetManualCuts();
+  resetEditorHistory();
   syncSelectedFileName();
   syncPlaybackButtons();
   defaultState = captureDefaultState();

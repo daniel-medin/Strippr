@@ -23,12 +23,15 @@ public sealed class WorkspaceService
 
     public string TempPath => Path.Combine(StorageRootPath, _options.TempFolder);
 
+    public string FeedbackPath => Path.Combine(StorageRootPath, "feedback");
+
     public void EnsureCreated()
     {
         Directory.CreateDirectory(StorageRootPath);
         Directory.CreateDirectory(UploadsPath);
         Directory.CreateDirectory(OutputsPath);
         Directory.CreateDirectory(TempPath);
+        Directory.CreateDirectory(FeedbackPath);
     }
 
     public string CreateUploadPath(string originalFileName)
@@ -115,6 +118,11 @@ public sealed class WorkspaceService
 
         File.Delete(outputPath);
         return true;
+    }
+
+    public string GetAiContentFeedbackLogPath()
+    {
+        return Path.Combine(FeedbackPath, "ai-content-feedback.jsonl");
     }
 
     private string ResolveOutputsPath()

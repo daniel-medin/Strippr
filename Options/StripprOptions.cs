@@ -42,4 +42,22 @@ public sealed class StripprOptions
     public double DefaultCutHandleMilliseconds { get; set; } = 120;
 
     public double MinimumKeepSegmentSeconds { get; set; } = 0.15;
+
+    public string AutomaticSilenceAnalyzer { get; set; } = "ffmpeg";
+
+    public bool SileroVadEnabled { get; set; } = false;
+
+    public string SileroVadModelPath { get; set; } = "tools/silero/silero_vad.onnx";
+
+    public int SileroVadSampleRate { get; set; } = 16000;
+
+    public float SileroVadSpeechThreshold { get; set; } = 0.5f;
+
+    public float SileroVadNegativeSpeechThreshold { get; set; } = 0.35f;
+
+    public int SileroVadMinSpeechMilliseconds { get; set; } = 120;
+
+    public int SileroVadMinSilenceMilliseconds { get; set; } = 180;
+
+    public int SileroVadSpeechPadMilliseconds { get; set; } = 60;
 }

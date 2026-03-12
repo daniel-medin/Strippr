@@ -4,6 +4,7 @@ public sealed record VideoProcessingResult(
     bool Success,
     string Message,
     string OriginalFileName,
+    string AutomaticSilenceAnalyzerUsed,
     string? OutputFileName,
     string? OutputPath,
     string? OutputUrl,

@@ -130,6 +130,39 @@ public sealed partial class FfmpegService
         return renderPlan.AppliedCrossfadeSeconds;
     }
 
+    public async Task<double> RenderAudioPreviewAsync(
+        string inputPath,
+        string outputPath,
+        IReadOnlyList<RenderSegment> renderSegments,
+        double crossfadeMilliseconds,
+        CancellationToken cancellationToken)
+    {
+        var executablePath = ResolveExecutablePath();
+        var renderPlan = BuildAudioRenderPlan(renderSegments, crossfadeMilliseconds);
+
+        var result = await RunProcessAsync(
+            executablePath,
+            arguments:
+            [
+                "-y",
+                "-hide_banner",
+                "-i", inputPath,
+                "-filter_complex", renderPlan.Filter,
+                "-map", "[a]",
+                "-c:a", "libmp3lame",
+                "-b:a", "32k",
+                outputPath
+            ],
+            cancellationToken: cancellationToken);
+
+        if (result.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"FFmpeg audio preview render failed: {result.StandardError}");
+        }
+
+        return renderPlan.AppliedCrossfadeSeconds;
+    }
+
     public async Task<double> ProbeDurationAsync(string inputPath, CancellationToken cancellationToken)
     {
         var result = await RunProcessAsync(
@@ -183,6 +216,73 @@ public sealed partial class FfmpegService
         if (result.ExitCode != 0)
         {
             throw new InvalidOperationException($"FFmpeg transcription-audio extraction failed: {result.StandardError}");
+        }
+    }
+
+    public async Task ExtractVadAudioAsync(
+        string inputPath,
+        string outputPath,
+        int sampleRate,
+        CancellationToken cancellationToken)
+    {
+        var normalizedSampleRate = sampleRate <= 0 ? 16000 : sampleRate;
+        var executablePath = ResolveExecutablePath();
+        var result = await RunProcessAsync(
+            executablePath,
+            arguments:
+            [
+                "-y",
+                "-hide_banner",
+                "-i", inputPath,
+                "-vn",
+                "-ac", "1",
+                "-ar", normalizedSampleRate.ToString(CultureInfo.InvariantCulture),
+                "-c:a", "pcm_s16le",
+                outputPath
+            ],
+            cancellationToken: cancellationToken);
+
+        if (result.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"FFmpeg VAD-audio extraction failed: {result.StandardError}");
+        }
+    }
+
+    public async Task ExtractAudioSegmentAsync(
+        string inputPath,
+        string outputPath,
+        double startSeconds,
+        double endSeconds,
+        CancellationToken cancellationToken)
+    {
+        var normalizedStartSeconds = Math.Max(0, startSeconds);
+        var normalizedDurationSeconds = Math.Max(0, endSeconds - normalizedStartSeconds);
+        if (normalizedDurationSeconds <= 0)
+        {
+            throw new InvalidOperationException("Audio segment duration must be greater than zero.");
+        }
+
+        var executablePath = ResolveExecutablePath();
+        var result = await RunProcessAsync(
+            executablePath,
+            arguments:
+            [
+                "-y",
+                "-hide_banner",
+                "-ss", normalizedStartSeconds.ToString("0.###", CultureInfo.InvariantCulture),
+                "-t", normalizedDurationSeconds.ToString("0.###", CultureInfo.InvariantCulture),
+                "-i", inputPath,
+                "-ac", "1",
+                "-ar", "16000",
+                "-c:a", "libmp3lame",
+                "-b:a", "24k",
+                outputPath
+            ],
+            cancellationToken: cancellationToken);
+
+        if (result.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"FFmpeg audio segment extraction failed: {result.StandardError}");
         }
     }
 
@@ -491,6 +591,81 @@ public sealed partial class FfmpegService
             appliedCrossfadeSeconds * hardCutTransitionCount);
     }
 
+    private static RenderPlan BuildAudioRenderPlan(
+        IReadOnlyList<RenderSegment> renderSegments,
+        double crossfadeMilliseconds)
+    {
+        if (renderSegments.Count == 0)
+        {
+            throw new InvalidOperationException("At least one render segment is required for audio preview rendering.");
+        }
+
+        var requestedCrossfadeSeconds = Math.Max(0, crossfadeMilliseconds) / 1000d;
+        var appliedCrossfadeSeconds = DetermineAppliedCrossfadeSeconds(renderSegments, requestedCrossfadeSeconds);
+        var hardCutTransitionCount = renderSegments.Count(segment => segment.StartsAfterHardCut);
+
+        if (renderSegments.Count == 1)
+        {
+            return new RenderPlan(
+                BuildAudioSegmentFilters(renderSegments[0], 0) + "[a0]anull[a]",
+                0);
+        }
+
+        var builder = new StringBuilder();
+        for (var index = 0; index < renderSegments.Count; index++)
+        {
+            builder.Append(BuildAudioSegmentFilters(renderSegments[index], index));
+        }
+
+        var currentAudioLabel = "a0";
+        var currentOutputDurationSeconds = renderSegments[0].OutputDurationSeconds;
+
+        for (var index = 1; index < renderSegments.Count; index++)
+        {
+            var segment = renderSegments[index];
+            var nextAudioLabel = $"a{index}";
+            var mergedAudioLabel = $"am{index}";
+            var useCrossfade = segment.StartsAfterHardCut && appliedCrossfadeSeconds > 0;
+
+            if (useCrossfade)
+            {
+                builder.Append('[');
+                builder.Append(currentAudioLabel);
+                builder.Append("][");
+                builder.Append(nextAudioLabel);
+                builder.Append("]acrossfade=d=");
+                builder.Append(appliedCrossfadeSeconds.ToString("0.###", CultureInfo.InvariantCulture));
+                builder.Append(":c1=tri:c2=tri[");
+                builder.Append(mergedAudioLabel);
+                builder.Append("];");
+
+                currentOutputDurationSeconds += segment.OutputDurationSeconds - appliedCrossfadeSeconds;
+            }
+            else
+            {
+                builder.Append('[');
+                builder.Append(currentAudioLabel);
+                builder.Append("][");
+                builder.Append(nextAudioLabel);
+                builder.Append("]concat=n=2:v=0:a=1[");
+                builder.Append(mergedAudioLabel);
+                builder.Append("];");
+
+                currentOutputDurationSeconds += segment.OutputDurationSeconds;
+            }
+
+            currentAudioLabel = mergedAudioLabel;
+        }
+
+        builder.Append('[');
+        builder.Append(currentAudioLabel);
+        builder.Append("]anull[a]");
+
+        return new RenderPlan(
+            builder.ToString().TrimEnd(';'),
+            appliedCrossfadeSeconds * hardCutTransitionCount);
+    }
+
     private static string BuildSegmentFilters(RenderSegment segment, int index, double frameRate)
     {
         var builder = new StringBuilder();
@@ -515,6 +690,31 @@ public sealed partial class FfmpegService
         builder.Append(index);
         builder.Append("];");
 
+        builder.Append("[0:a]atrim=start=");
+        builder.Append(segment.StartSeconds.ToString("0.###", CultureInfo.InvariantCulture));
+        builder.Append(":end=");
+        builder.Append(segment.EndSeconds.ToString("0.###", CultureInfo.InvariantCulture));
+        builder.Append(",asetpts=PTS-STARTPTS");
+
+        if (segment.PlaybackSpeed > 1)
+        {
+            foreach (var atempoStep in BuildAtempoChain(segment.PlaybackSpeed))
+            {
+                builder.Append(",atempo=");
+                builder.Append(atempoStep.ToString("0.###", CultureInfo.InvariantCulture));
+            }
+        }
+
+        builder.Append("[a");
+        builder.Append(index);
+        builder.Append("];");
+
+        return builder.ToString();
+    }
+
+    private static string BuildAudioSegmentFilters(RenderSegment segment, int index)
+    {
+        var builder = new StringBuilder();
         builder.Append("[0:a]atrim=start=");
         builder.Append(segment.StartSeconds.ToString("0.###", CultureInfo.InvariantCulture));
         builder.Append(":end=");

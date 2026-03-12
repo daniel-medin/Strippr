@@ -1,331 +1,252 @@
-# Strippr Plan
+# Silero VAD Plan
+
+This document is now mostly historical. The rollout described below has been implemented, and Strippr currently exposes Silero through the `Auto silence` selector in the `Editor` tab.
+
+Current shipped modes:
+
+- `FFmpeg`
+- `Silero VAD`
+- `Hybrid`
+
+Current UI behavior:
+
+- the waveform preview follows the selected analyzer
+- `Play result` uses the same automatic cut ranges shown in the waveform
+- users can manually tighten green automatic cut regions with waveform handles
+- AI features remain separate in the `AI (experimental)` tab
 
 ## Goal
 
-Build a local web app called `strippr` that lets a user:
+Add `Silero VAD` to Strippr as a better local speech / non-speech detector than raw FFmpeg `silencedetect`, without breaking the current workflow.
 
-1. Upload a video file.
-2. Detect silence and obvious dead air.
-3. Cut or compress those sections.
-4. Download the cleaned result.
+The target outcome is:
 
-The first version should be practical, deterministic, and easy to run on a local machine. It should avoid unnecessary AI complexity until the silence-cutting pipeline is solid.
+- better pause boundaries
+- better handling of breaths and throat-noise gaps
+- cleaner input for A1 / A3
+- a safe fallback to the current FFmpeg-only pipeline
 
-## Product Direction
+## Constraints
 
-### MVP
+- keep everything local
+- do not remove the FFmpeg path
+- do not require Python at runtime
+- prefer a C# + ONNX Runtime integration
+- keep the feature disabled by default until it is verified
 
-The MVP focuses on one job:
+## Current Baseline
 
-- Upload a single video.
-- Detect silence with FFmpeg.
-- Remove or compress silent gaps.
-- Return a processed output file.
+Today Strippr uses:
 
-### Post-MVP
+- FFmpeg `silencedetect` for automatic pause detection
+- Whisper/OpenAI for transcript-based AI layers
+- waveform preview driven by browser audio analysis
 
-After the silence pipeline works reliably, add:
+This means the weakest current boundary logic is still the first speech / silence split.
 
-- Preview timeline of cuts.
-- Adjustable thresholds for silence detection.
-- "Bad take" detection with speech heuristics.
-- Batch processing.
-- Export presets for Shorts, Reels, YouTube.
+## Why Silero
 
-## Technical Approach
+Silero VAD is useful here because it is good at:
 
-### Stack
+- speech vs non-speech segmentation
+- tighter speech boundaries than fixed dB thresholds
+- reducing false silence detections caused by room tone differences
 
-Use:
+It will not solve:
 
-- `ASP.NET Core 9`
-- `Razor Pages`
-- `FFmpeg` for media analysis and rendering
-- `C#`
+- retake quality
+- wrong-line detection
+- content-aware take selection
 
-Reasoning:
+So the right use is:
 
-- A single Razor Pages app keeps the local UI and backend logic in one codebase.
-- FFmpeg already solves the hard media-processing primitives.
-- C# keeps the cut-planning and process orchestration code easy to test.
+- improve the base speech map
+- feed that into existing cut planning
 
-### Storage
+## Rollout Phases
 
-Use local disk storage first:
-
-- uploaded files in `App_Data/uploads`
-- rendered outputs in `App_Data/outputs`
-- temp working files in `App_Data/temp`
-
-Do not require a database for the MVP.
-
-If persistence becomes necessary later, use `SQLite` rather than SQL Server because this app is local-only and single-user.
-
-### Local-First Runtime
-
-The app should run locally on the user's machine, for example:
-
-```bash
-dotnet run
-```
-
-Then open:
-
-```text
-https://localhost:5001
-```
-
-### Processing Pipeline
-
-1. User uploads a video.
-2. Server stores it in a temp working directory.
-3. FFmpeg extracts or analyzes audio.
-4. `silencedetect` identifies silence ranges.
-5. App converts silence ranges into keep/cut segments.
-6. FFmpeg renders a cleaned output.
-7. User downloads the result.
-
-## Core Decisions
-
-### Decision 1: Start with silence removal, not bad-take AI
-
-Silence removal is the fastest way to get a useful product. "Bad take" detection is much less reliable and should be treated as an enhancement layer, not a foundation.
-
-### Decision 2: Prefer pause compression over hard deletion
-
-Completely deleting pauses can make speech feel unnatural. The better default is:
-
-- keep short pauses untouched
-- compress long pauses to a smaller fixed duration
-
-Example:
-
-- `3.0s` pause becomes `0.3s`
-
-### Decision 3: Use a cut plan as an intermediate data model
-
-Do not couple the UI directly to FFmpeg output. The app should generate an internal cut plan like:
-
-```json
-{
-  "source": "input.mp4",
-  "segments": [
-    { "start": 0, "end": 12.4, "action": "keep" },
-    { "start": 12.4, "end": 14.1, "action": "compress", "targetDuration": 0.3 }
-  ]
-}
-```
-
-This makes the logic testable and supports future timeline previews.
-
-## Delivery Phases
-
-### Phase 1: Project Bootstrap
-
-Create:
-
-- ASP.NET Core 9 Razor Pages app
-- basic homepage
-- upload form
-- local temp/output directories
-- FFmpeg presence check
-
-Definition of done:
-
-- app boots locally
-- user can select a video file
-- backend accepts upload and stores it
-
-### Phase 2: Silence Detection
-
-Implement:
-
-- FFmpeg `silencedetect` execution
-- parser for silence timestamps
-- normalization of silence ranges
-- basic user-configurable thresholds
-
-Initial defaults:
-
-- noise threshold: `-30dB`
-- minimum silence duration: `0.5s`
-
-Definition of done:
-
-- backend returns parsed silence intervals for a sample file
-
-### Phase 3: Cut Plan Builder
-
-Implement:
-
-- conversion from silence ranges to timeline segments
-- strategies:
-  - `remove`
-  - `compress`
-- guardrails against tiny unusable cuts
-
-Definition of done:
-
-- a sample input produces a deterministic cut plan
-- cut plan is test-covered
-
-### Phase 4: Video Rendering
-
-Implement:
-
-- render output from the cut plan
-- preserve A/V sync
-- write output file to disk
-- expose downloadable result
-
-Preferred implementation path:
-
-- start with hard cuts for silent segments
-- add pause compression after the hard-cut path is stable
-
-Definition of done:
-
-- uploaded video produces a downloadable edited file
-
-### Phase 5: UX Pass
+### Phase 1: Scaffolding
 
 Add:
 
-- processing states
-- error messages
-- job progress indicator
-- result metadata
-- clean download flow
+- `ONNX Runtime` package reference
+- Strippr config for Silero
+- `SileroVadService`
+- model-path resolution
+- status endpoint / health reporting
 
 Definition of done:
 
-- user can upload, process, and download without using the terminal
+- the app builds
+- Silero is disabled by default
+- the app can report whether the model file exists and whether the runtime is wired in
 
-### Phase 6: Smart Cut Enhancements
+### Phase 2: Audio Prep
 
-Potential features:
+Add:
 
-- Whisper transcription
-- filler word detection
-- restart phrase detection
-- optional "aggressive cleanup" mode
+- FFmpeg export for `16 kHz mono PCM WAV`
+- a safe temp-file path for VAD input
+- future-facing helper methods for reading sample windows
 
 Definition of done:
 
-- heuristics are optional and do not block the core silence workflow
+- a local clip can be converted into the correct Silero input format
 
-## File Structure Target
+### Phase 3: Inference Spike
 
-Suggested initial structure:
+Implement:
 
-```text
-/
-  PLAN.md
-  Program.cs
-  Strippr.csproj
-  Pages/
-    Index.cshtml
-    Index.cshtml.cs
-    Shared/
-      _Layout.cshtml
-  Services/
-    FfmpegService.cs
-    CutPlanBuilder.cs
-    VideoProcessingService.cs
-    WorkspaceService.cs
-  Models/
-  Options/
-  App_Data/
-    uploads/
-    outputs/
-    temp/
-```
+- load the ONNX model
+- run VAD over audio windows
+- emit per-window speech probabilities
+- convert probabilities into speech ranges
+
+Definition of done:
+
+- a sample clip produces speech segments from Silero without touching the main processing path
+
+### Phase 4: Post-Processing
+
+Implement:
+
+- merge nearby speech windows
+- derive non-speech gaps
+- minimum speech / minimum gap guardrails
+- confidence-aware cleanup of tiny junk regions
+
+Definition of done:
+
+- Silero output becomes stable enough to compare against FFmpeg silence intervals
+
+### Phase 5: Comparison Mode
+
+Add:
+
+- a developer comparison path: `ffmpeg`, `silero`, `hybrid`
+- status/debug output showing interval differences
+- optional waveform overlay for Silero speech regions
+
+Definition of done:
+
+- the same clip can be analyzed with both detectors and compared directly
+
+### Phase 6: Production Integration
+
+Use Silero for:
+
+- A1 silence candidates
+- safer pause compression boundaries
+- cleaner A3 gap-only cleanup
+
+Keep FFmpeg as:
+
+- fallback
+- low-complexity mode
+- release-safe default until Silero proves better
+
+Definition of done:
+
+- Strippr can switch analyzers without breaking rendering
+
+## Integration Strategy
+
+### Analyzer Modes
+
+Planned modes:
+
+- `ffmpeg`
+- `silero`
+- `hybrid`
+
+`hybrid` should probably become the best end-state:
+
+- Silero decides speech / non-speech
+- FFmpeg still handles rendering
+- existing cut planner still builds keep/cut segments
+
+### Safe First Rule
+
+Do not let Silero replace FFmpeg immediately.
+
+First:
+
+- build it beside the current path
+- compare interval quality
+- only then let it drive cuts
+
+## Technical Notes
+
+### Runtime
+
+Preferred runtime path:
+
+- `Microsoft.ML.OnnxRuntime`
+- local `.onnx` model file in `tools/silero/`
+
+### Model File Convention
+
+Initial expected path:
+
+- `tools/silero/silero_vad.onnx`
+
+This should stay outside publish output until the integration is proven.
+
+### Audio Format
+
+Initial export target:
+
+- mono
+- `16 kHz`
+- PCM WAV
 
 ## Risks
 
-### FFmpeg Availability
+### Risk: Model Packaging
 
-Risk:
-
-- local machines may not have FFmpeg installed or available on `PATH`
+The ONNX model should not be treated like a required production asset yet.
 
 Mitigation:
 
-- check for FFmpeg on startup
-- show a direct setup error in the UI
+- keep it optional
+- surface clear status if missing
 
-### A/V Sync
+### Risk: Over-Cutting
 
-Risk:
-
-- naive cuts can desync video and audio
+Better VAD boundaries can still be too aggressive if post-processing is wrong.
 
 Mitigation:
 
-- centralize render logic
-- test with real speech-heavy sample videos
+- preserve FFmpeg fallback
+- use guardrails on minimum speech / minimum gap
 
-### Large Files
+### Risk: Windows Runtime Friction
 
-Risk:
-
-- uploads and renders can be slow or memory-heavy
+ONNX Runtime adds native dependencies.
 
 Mitigation:
 
-- stream files where possible
-- keep processing on disk, not fully in memory
-
-### Bad-Take Detection Quality
-
-Risk:
-
-- heuristic or AI-based cuts may be wrong and frustrate users
-
-Mitigation:
-
-- keep it opt-in
-- ship silence cleanup first
-
-## Acceptance Criteria For MVP
-
-The MVP is complete when:
-
-- a user can run the app locally
-- a user can upload one video through the browser
-- the app detects silence using FFmpeg
-- the app outputs a cleaned video file
-- the user can download the result from the browser
-- common failures produce understandable errors
+- verify local build first
+- keep the code path disabled until status and inference are stable
 
 ## Immediate Next Steps
 
-1. Install FFmpeg locally and add it to `PATH`.
-2. Run the app and verify the health panel reports FFmpeg as available.
-3. Test the upload/process/download flow with a real sample clip.
-4. Add progress reporting for long renders.
-5. Add optional pause compression after the hard-cut path is stable.
-6. Decide later whether any persistence actually needs `SQLite`.
+1. Add 16 kHz WAV extraction for VAD.
+2. Load the ONNX model in a non-rendering spike path.
+3. Compare Silero speech intervals against FFmpeg silence intervals on real clips.
+4. Only after comparison, let Silero drive A1 or A3 cleanup.
 
-## Non-Goals For First Pass
+## Current Status
 
-Do not spend time yet on:
+- [x] Phase 1 scaffolding
+- [x] Phase 2 audio prep
+- [x] Phase 3 inference spike
+- [x] Phase 4 post-processing
+- [x] Phase 5 comparison mode
+- [x] Phase 6 production integration
 
-- cloud deployment
-- authentication
-- accounts
-- multi-user job management
-- advanced timeline editor
-- visual scene analysis
+Open follow-ups:
 
-## Working Principle
-
-Keep the first version boring and reliable:
-
-- local
-- single-user
-- FFmpeg-first
-- deterministic
-- testable
-
-If the MVP works well, the smart features can be layered on top without rewriting the core pipeline.
+- tune `Silero` vs `Hybrid` defaults on more real clips
+- decide whether `Hybrid` should become the default analyzer later
+- keep comparing analyzer quality separately from the experimental AI layers

@@ -62,6 +62,18 @@ public sealed class IndexModel : PageModel
     public string DefaultPauseSpeedMultiplierText =>
         _options.DefaultPauseSpeedMultiplier.ToString("0.###", CultureInfo.InvariantCulture);
 
+    public string DescribeAutomaticSilenceAnalyzer(string? value)
+    {
+        return NormalizeAutomaticSilenceAnalyzer(value) switch
+        {
+            "silero" => "Silero VAD",
+            "hybrid" => "Hybrid",
+            "off" => "Off",
+            "ffmpeg-fallback" => "FFmpeg fallback",
+            _ => "FFmpeg"
+        };
+    }
+
     public async Task OnGetAsync(CancellationToken cancellationToken)
     {
         ApplyDefaults();
@@ -74,6 +86,8 @@ public sealed class IndexModel : PageModel
         var manualCutRanges = ParseCutRanges(Input.ManualCutRangesJson);
         var aiCutRanges = ParseCutRanges(Input.AiCutRangesJson);
         var aiContentCutRanges = ParseCutRanges(Input.AiContentCutRangesJson);
+        var aiAutoCutRanges = ParseCutRanges(Input.AiAutoCutRangesJson);
+        var automaticCutRanges = ParseCutRanges(Input.AutomaticCutRangesJson);
 
         if (Input.Video is null)
         {
@@ -101,6 +115,20 @@ public sealed class IndexModel : PageModel
                 "The A2 cut ranges could not be read. Run the A2 analysis again.");
         }
 
+        if (aiAutoCutRanges is null)
+        {
+            ModelState.AddModelError(
+                $"{nameof(Input)}.{nameof(Input.AiAutoCutRangesJson)}",
+                "The A3 cut ranges could not be read. Run the A3 analysis again.");
+        }
+
+        if (automaticCutRanges is null)
+        {
+            ModelState.AddModelError(
+                $"{nameof(Input)}.{nameof(Input.AutomaticCutRangesJson)}",
+                "The automatic cut handles could not be read. Refresh the page and try again.");
+        }
+
         if (!ModelState.IsValid)
         {
             return Page();
@@ -109,6 +137,7 @@ public sealed class IndexModel : PageModel
         var explicitCutRanges = manualCutRanges!
             .Concat(aiCutRanges!)
             .Concat(aiContentCutRanges!)
+            .Concat(aiAutoCutRanges!)
             .ToList();
 
         var automaticSilenceEnabled = Input.EnableNoiseThreshold && Input.EnableMinimumSilence;
@@ -131,6 +160,7 @@ public sealed class IndexModel : PageModel
         Result = await _videoProcessingService.ProcessAsync(
             Input.Video!,
             automaticSilenceEnabled,
+            Input.AutomaticSilenceAnalyzer,
             Input.NoiseThreshold,
             Input.MinimumSilenceSeconds,
             retainedSilenceSeconds,
@@ -138,6 +168,7 @@ public sealed class IndexModel : PageModel
             crossfadeMilliseconds,
             videoCrossfadeFrames,
             pauseSpeedMultiplier,
+            automaticCutRanges!,
             explicitCutRanges,
             cancellationToken);
 
@@ -158,13 +189,14 @@ public sealed class IndexModel : PageModel
     {
         Input = new InputModel
         {
-            EnableNoiseThreshold = false,
+            EnableNoiseThreshold = true,
             NoiseThreshold = _options.DefaultNoiseThreshold,
-            EnableMinimumSilence = false,
+            EnableMinimumSilence = true,
             MinimumSilenceSeconds = _options.DefaultMinimumSilenceSeconds,
+            AutomaticSilenceAnalyzer = NormalizeAutomaticSilenceAnalyzer(_options.AutomaticSilenceAnalyzer),
             EnableRetainedSilence = false,
             RetainedSilenceSeconds = _options.DefaultRetainedSilenceSeconds,
-            EnableCutHandles = false,
+            EnableCutHandles = true,
             CutHandleMilliseconds = _options.DefaultCutHandleMilliseconds,
             EnableCrossfade = false,
             CrossfadeMilliseconds = _options.DefaultCrossfadeMilliseconds,
@@ -174,7 +206,9 @@ public sealed class IndexModel : PageModel
             PauseSpeedMultiplier = _options.DefaultPauseSpeedMultiplier,
             ManualCutRangesJson = "[]",
             AiCutRangesJson = "[]",
-            AiContentCutRangesJson = "[]"
+            AiContentCutRangesJson = "[]",
+            AiAutoCutRangesJson = "[]",
+            AutomaticCutRangesJson = "[]"
         };
     }
 
@@ -197,6 +231,8 @@ public sealed class IndexModel : PageModel
         public string NoiseThreshold { get; set; } = string.Empty;
 
         public bool EnableMinimumSilence { get; set; } = true;
+
+        public string AutomaticSilenceAnalyzer { get; set; } = "ffmpeg";
 
         [Range(0.1, 10)]
         public double MinimumSilenceSeconds { get; set; }
@@ -231,6 +267,10 @@ public sealed class IndexModel : PageModel
         public string AiCutRangesJson { get; set; } = "[]";
 
         public string AiContentCutRangesJson { get; set; } = "[]";
+
+        public string AiAutoCutRangesJson { get; set; } = "[]";
+
+        public string AutomaticCutRangesJson { get; set; } = "[]";
     }
 
     private static IReadOnlyList<SilenceInterval>? ParseCutRanges(string? cutRangesJson)
@@ -281,4 +321,16 @@ public sealed class IndexModel : PageModel
     }
 
     private sealed record ManualCutRangePayload(double StartSeconds, double EndSeconds);
+
+    private static string NormalizeAutomaticSilenceAnalyzer(string? value)
+    {
+        return value?.Trim().ToLowerInvariant() switch
+        {
+            "silero" => "silero",
+            "hybrid" => "hybrid",
+            "off" => "off",
+            "ffmpeg-fallback" => "ffmpeg-fallback",
+            _ => "ffmpeg"
+        };
+    }
 }
